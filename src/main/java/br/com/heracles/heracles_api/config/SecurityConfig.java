@@ -83,6 +83,22 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/unidades/**").authenticated()
                         .requestMatchers("/api/unidades/**").hasRole("ADMIN")
 
+                        // Loja: a recepcao vende; o cadastro de produto e o
+                        // ajuste de estoque sao da administracao.
+                        .requestMatchers(HttpMethod.GET, "/api/produtos/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA")
+                        .requestMatchers("/api/produtos/**").hasRole("ADMIN")
+                        .requestMatchers("/api/vendas/**").hasAnyRole("ADMIN", "SECRETARIA")
+
+                        // Equipamentos: quem esta no salao abre chamado — o
+                        // professor e quem costuma ver o aparelho quebrar.
+                        // Cadastrar e dar baixa no reparo ficam com a administracao.
+                        .requestMatchers(HttpMethod.GET, "/api/equipamentos/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers(HttpMethod.POST, "/api/equipamentos/*/chamados")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers("/api/equipamentos/**").hasRole("ADMIN")
+
                         .requestMatchers("/api/dashboard/**")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
 

@@ -11,6 +11,11 @@ public record DashboardResumoResponse(
         long alunosInativos,
         long treinosCadastrados,
         long fichasAtribuidas,
-        long novasMatriculasNoMes
+        long novasMatriculasNoMes,
+        /** Aparelhos fora de operacao agora — o numero que pede acao no dia. */
+        long equipamentosEmManutencao,
+        long produtosComEstoqueBaixo,
+        long vendasNoMes,
+        java.math.BigDecimal faturamentoDoMes
 ) {
 }
