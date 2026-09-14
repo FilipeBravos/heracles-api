@@ -46,7 +46,10 @@ class TreinoControllerTest {
                 "nivel", "Intermediario",
                 "exercicios", List.of(Map.of(
                         "nome", "Supino Reto com Barra",
-                        "repeticoes", "4x10 a 12",
+                        "series", 4,
+                        "repeticoesMin", 10,
+                        "repeticoesMax", 12,
+                        "carga", "Ate a falha na ultima serie",
                         "observacoes", "Descanso de 60s"))
         );
     }
@@ -57,7 +60,7 @@ class TreinoControllerTest {
         // Regressao do defeito original: salvarTreino nao tinha @PostMapping,
         // entao esta rota respondia 405 e criar ficha era impossivel.
         given(service.criar(any())).willReturn(
-                new TreinoResponse(7L, "Ficha A - Peito e Triceps", "Hipertrofia", "Intermediario", List.of()));
+                new TreinoResponse(7L, "Ficha A - Peito e Triceps", "Hipertrofia", "Intermediario", List.of(), 0));
 
         mockMvc.perform(post("/api/treinos")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -85,13 +88,43 @@ class TreinoControllerTest {
     void camposObrigatoriosEmBranco() throws Exception {
         String corpo = objectMapper.writeValueAsString(Map.of(
                 "nome", "", "foco", "", "nivel", "",
-                "exercicios", List.of(Map.of("nome", "X", "repeticoes", "3x10"))));
+                "exercicios", List.of(Map.of(
+                        "nome", "X", "series", 3, "repeticoesMin", 10, "repeticoesMax", 10))));
 
         mockMvc.perform(post("/api/treinos").contentType(MediaType.APPLICATION_JSON).content(corpo))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.erros.nome").exists())
                 .andExpect(jsonPath("$.erros.foco").exists())
                 .andExpect(jsonPath("$.erros.nivel").exists());
+    }
+
+    @Test
+    @DisplayName("Faixa de repeticoes invertida e rejeitada com 400")
+    void faixaDeRepeticoesInvertida() throws Exception {
+        // 4x12 a 10 nao existe: o maximo nao pode ser menor que o minimo.
+        String corpo = objectMapper.writeValueAsString(Map.of(
+                "nome", "Ficha A", "foco", "Hipertrofia", "nivel", "Iniciante",
+                "exercicios", List.of(Map.of(
+                        "nome", "Supino Reto", "series", 4,
+                        "repeticoesMin", 12, "repeticoesMax", 10))));
+
+        mockMvc.perform(post("/api/treinos").contentType(MediaType.APPLICATION_JSON).content(corpo))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Dados invalidos"));
+    }
+
+    @Test
+    @DisplayName("Series fora do limite e rejeitada com 400")
+    void seriesForaDoLimite() throws Exception {
+        String corpo = objectMapper.writeValueAsString(Map.of(
+                "nome", "Ficha A", "foco", "Hipertrofia", "nivel", "Iniciante",
+                "exercicios", List.of(Map.of(
+                        "nome", "Supino Reto", "series", 99,
+                        "repeticoesMin", 10, "repeticoesMax", 10))));
+
+        mockMvc.perform(post("/api/treinos").contentType(MediaType.APPLICATION_JSON).content(corpo))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.erros").exists());
     }
 
     @Test

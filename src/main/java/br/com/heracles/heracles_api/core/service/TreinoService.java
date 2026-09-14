@@ -119,9 +119,21 @@ public class TreinoService {
 
     private void aplicar(TreinoRequest.ExercicioRequest request, Exercicio exercicio, int ordem) {
         exercicio.setNome(request.nome());
-        exercicio.setRepeticoes(request.repeticoes());
-        exercicio.setObservacoes(request.observacoes());
+        exercicio.setSeries(request.series());
+        exercicio.setRepeticoesMin(request.repeticoesMin());
+        exercicio.setRepeticoesMax(request.repeticoesMax());
+        exercicio.setCarga(vazioComoNulo(request.carga()));
+        exercicio.setObservacoes(vazioComoNulo(request.observacoes()));
         exercicio.setOrdem(ordem);
+    }
+
+    /** Campo opcional em branco vira nulo, para nao guardar string vazia. */
+    private String vazioComoNulo(String valor) {
+        if (valor == null) {
+            return null;
+        }
+        String limpo = valor.trim();
+        return limpo.isEmpty() ? null : limpo;
     }
 
     private Treino carregar(Long id) {
