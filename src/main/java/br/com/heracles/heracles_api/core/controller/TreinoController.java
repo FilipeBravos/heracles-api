@@ -1,61 +1,59 @@
 package br.com.heracles.heracles_api.core.controller;
 
-import br.com.heracles.heracles_api.core.domain.Treino;
-import br.com.heracles.heracles_api.core.repository.TreinoRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.*;
+import br.com.heracles.heracles_api.core.dto.TreinoRequest;
+import br.com.heracles.heracles_api.core.dto.TreinoResponse;
+import br.com.heracles.heracles_api.core.service.TreinoService;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
 
-import java.util.List;
-
-@CrossOrigin(origins = "http://localhost:4200")
+// Sem @CrossOrigin: a politica de CORS e unica e vive em SecurityConfig.
 @RestController
 @RequestMapping("/api/treinos")
 public class TreinoController {
 
-    @Autowired
-    private TreinoRepository repository;
+    private final TreinoService service;
 
-    @GetMapping
-    public List<Treino> listarTodos() {
-        return repository.findAll();
+    public TreinoController(TreinoService service) {
+        this.service = service;
     }
 
-    public Treino salvarTreino(@RequestBody Treino novoTreino) {
-        // Antes de salvar, avisa para cada exercício quem é o "Pai" (Treino) dele
-        if (novoTreino.getExercicios() != null) {
-            novoTreino.getExercicios().forEach(ex -> ex.setTreino(novoTreino));
-        }
-        return repository.save(novoTreino);
+    @GetMapping
+    public Page<TreinoResponse> listar(
+            @PageableDefault(size = 20, sort = "nome", direction = Sort.Direction.ASC) Pageable pageable) {
+        return service.listar(pageable);
+    }
+
+    @GetMapping("/{id}")
+    public TreinoResponse buscarPorId(@PathVariable Long id) {
+        return service.buscarPorId(id);
+    }
+
+    /**
+     * O @PostMapping que faltava: o metodo existia e estava correto, mas sem
+     * anotacao o Spring nunca registrou a rota, e criar ficha respondia 405.
+     */
+    @PostMapping
+    public ResponseEntity<TreinoResponse> criar(@RequestBody @Valid TreinoRequest request,
+                                                UriComponentsBuilder uriBuilder) {
+        TreinoResponse criado = service.criar(request);
+        var uri = uriBuilder.path("/api/treinos/{id}").buildAndExpand(criado.id()).toUri();
+        return ResponseEntity.created(uri).body(criado);
     }
 
     @PutMapping("/{id}")
-    public Treino atualizar(@PathVariable Long id, @RequestBody Treino dadosAtualizados) {
-        return repository.findById(id).map(treinoExistente -> {
-            treinoExistente.setNome(dadosAtualizados.getNome());
-            treinoExistente.setFoco(dadosAtualizados.getFoco());
-            treinoExistente.setNivel(dadosAtualizados.getNivel());
-
-            // Limpa a lista de exercícios antiga e coloca a nova que veio do Front
-            treinoExistente.getExercicios().clear();
-            if (dadosAtualizados.getExercicios() != null) {
-                dadosAtualizados.getExercicios().forEach(ex -> {
-                    ex.setTreino(treinoExistente);
-                    treinoExistente.getExercicios().add(ex);
-                });
-            }
-            return repository.save(treinoExistente);
-        }).orElseThrow(() -> new RuntimeException("Treino não encontrado"));
+    public TreinoResponse atualizar(@PathVariable Long id, @RequestBody @Valid TreinoRequest request) {
+        return service.atualizar(id, request);
     }
 
-    // [NOVO] Excluir a ficha
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletar(@PathVariable Long id) {
-        repository.deleteById(id);
-        return ResponseEntity.noContent().build(); // Retorna 204 (Sucesso sem conteúdo) para o Front
+        service.deletar(id);
+        return ResponseEntity.noContent().build();
     }
 }

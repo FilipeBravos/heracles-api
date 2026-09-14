@@ -1,0 +1,26 @@
+# Postgres de desenvolvimento do Heracles.
+#
+#   docker compose up -d
+#
+# A porta 5433 e proposital: deixa um Postgres local na 5432 intacto.
+# As credenciais aqui batem com src/main/resources/application-local.properties.
+services:
+  postgres:
+    image: postgres:16
+    container_name: heracles-postgres
+    environment:
+      POSTGRES_DB: heracles_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+    ports:
+      - '5433:5432'
+    volumes:
+      - heracles-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U admin -d heracles_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  heracles-pgdata:

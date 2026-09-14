@@ -1,18 +1,17 @@
 package br.com.heracles.heracles_api.core.domain;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 @Table(name = "unidades", schema = "core")
-@Data
-@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@Getter
+@Setter
 public class Unidade {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @EqualsAndHashCode.Include
     private Long id;
 
     private String nome;
@@ -22,4 +21,16 @@ public class Unidade {
 
     private String endereco;
     private String telefone;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Unidade outra)) return false;
+        return id != null && id.equals(outra.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
+    }
 }

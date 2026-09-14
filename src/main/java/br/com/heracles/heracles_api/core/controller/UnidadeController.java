@@ -1,9 +1,11 @@
 package br.com.heracles.heracles_api.core.controller;
 
-import br.com.heracles.heracles_api.core.domain.Unidade;
-import br.com.heracles.heracles_api.core.repository.UnidadeRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import br.com.heracles.heracles_api.core.dto.UnidadeDtos;
+import br.com.heracles.heracles_api.core.service.UnidadeService;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 
@@ -11,16 +13,33 @@ import java.util.List;
 @RequestMapping("/api/unidades")
 public class UnidadeController {
 
-    @Autowired
-    private UnidadeRepository repository;
+    private final UnidadeService service;
 
-    @PostMapping
-    public Unidade criar(@RequestBody Unidade unidade) {
-        return repository.save(unidade);
+    public UnidadeController(UnidadeService service) {
+        this.service = service;
     }
 
     @GetMapping
-    public List<Unidade> listarTodas() {
-        return repository.findAll();
+    public List<UnidadeDtos.Response> listar() {
+        return service.listar();
+    }
+
+    @GetMapping("/{id}")
+    public UnidadeDtos.Response buscarPorId(@PathVariable Long id) {
+        return service.buscarPorId(id);
+    }
+
+    @PostMapping
+    public ResponseEntity<UnidadeDtos.Response> criar(@RequestBody @Valid UnidadeDtos.Request request,
+                                                      UriComponentsBuilder uriBuilder) {
+        UnidadeDtos.Response criada = service.criar(request);
+        var uri = uriBuilder.path("/api/unidades/{id}").buildAndExpand(criada.id()).toUri();
+        return ResponseEntity.created(uri).body(criada);
+    }
+
+    @PutMapping("/{id}")
+    public UnidadeDtos.Response atualizar(@PathVariable Long id,
+                                          @RequestBody @Valid UnidadeDtos.Request request) {
+        return service.atualizar(id, request);
     }
 }

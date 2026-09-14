@@ -1,73 +1,60 @@
 package br.com.heracles.heracles_api.core.controller;
 
-import br.com.heracles.heracles_api.core.domain.StatusUsuario;
-import br.com.heracles.heracles_api.core.domain.Usuario;
-import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
+import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
+import br.com.heracles.heracles_api.core.service.UsuarioService;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import br.com.heracles.heracles_api.core.domain.Treino; // Ajuste o pacote do Treino
-import br.com.heracles.heracles_api.core.repository.TreinoRepository; // Ajuste o pacote do TreinoRepository
+import org.springframework.web.util.UriComponentsBuilder;
 
-import java.util.List;
-@CrossOrigin(origins = "http://localhost:4200") // Permite que seu Angular acesse a API
 @RestController
 @RequestMapping("/api/usuarios")
-
-
 public class UsuarioController {
 
-    @Autowired
-    private UsuarioRepository repository;
+    private final UsuarioService service;
 
-    @Autowired
-    private TreinoRepository treinoRepository;
-
-    @PostMapping
-    public Usuario criar(@RequestBody Usuario usuario) {
-        return repository.save(usuario);
+    public UsuarioController(UsuarioService service) {
+        this.service = service;
     }
 
     @GetMapping
-    public List<Usuario> listarTodos() {
-        return repository.findAll();
+    public Page<UsuarioResponse> listar(
+            @PageableDefault(size = 20, sort = "nome", direction = Sort.Direction.ASC) Pageable pageable) {
+        return service.listar(pageable);
     }
 
-    @PutMapping("/{idUsuario}/treinos")
-    public Usuario sincronizarTreinos(@PathVariable Long idUsuario, @RequestBody List<Long> treinosIds) {
-        Usuario usuario = repository.findById(idUsuario)
-                .orElseThrow(() -> new RuntimeException("Aluno não encontrado"));
+    @GetMapping("/{id}")
+    public UsuarioResponse buscarPorId(@PathVariable Long id) {
+        return service.buscarPorId(id);
+    }
 
-        // Busca todos os treinos que o Front mandou e atribui ao aluno
-        List<Treino> treinosSelecionados = treinoRepository.findAllById(treinosIds);
-        usuario.setTreinos(treinosSelecionados);
-
-        return repository.save(usuario);
+    @PostMapping
+    public ResponseEntity<UsuarioResponse> criar(@RequestBody @Valid UsuarioRequests.Criar request,
+                                                 UriComponentsBuilder uriBuilder) {
+        UsuarioResponse criado = service.criar(request);
+        var uri = uriBuilder.path("/api/usuarios/{id}").buildAndExpand(criado.id()).toUri();
+        return ResponseEntity.created(uri).body(criado);
     }
 
     @PutMapping("/{id}")
-    public Usuario atualizarAluno(@PathVariable Long id, @RequestBody Usuario dadosAtualizados) {
-        return repository.findById(id).map(alunoExistente -> {
-            alunoExistente.setNome(dadosAtualizados.getNome());
-            alunoExistente.setCpf(dadosAtualizados.getCpf());
-            alunoExistente.setEmail(dadosAtualizados.getEmail());
-            alunoExistente.setTelefone(dadosAtualizados.getTelefone());
-
-            return repository.save(alunoExistente);
-        }).orElseThrow(() -> new RuntimeException("Aluno não encontrado"));
+    public UsuarioResponse atualizar(@PathVariable Long id,
+                                     @RequestBody @Valid UsuarioRequests.Atualizar request) {
+        return service.atualizar(id, request);
     }
 
-    // [NOVO] Rota para alternar o status do aluno (Ativo <-> Inativo)
+    @PutMapping("/{id}/treinos")
+    public UsuarioResponse sincronizarTreinos(@PathVariable Long id,
+                                              @RequestBody @Valid UsuarioRequests.VincularTreinos request) {
+        return service.sincronizarTreinos(id, request.treinosIds());
+    }
+
     @PutMapping("/{id}/status")
-    public Usuario alternarStatus(@PathVariable Long id) {
-        return repository.findById(id).map(alunoExistente -> {
-            // Se está ATIVO, vira INATIVO. Se não, vira ATIVO.
-            if (alunoExistente.getStatus() == StatusUsuario.ATIVO) {
-                alunoExistente.setStatus(StatusUsuario.INATIVO);
-            } else {
-                alunoExistente.setStatus(StatusUsuario.ATIVO);
-            }
-            return repository.save(alunoExistente);
-        }).orElseThrow(() -> new RuntimeException("Aluno não encontrado"));
+    public UsuarioResponse alternarStatus(@PathVariable Long id) {
+        return service.alternarStatus(id);
     }
-
 }

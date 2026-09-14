@@ -2,9 +2,7 @@ package br.com.heracles.heracles_api.core.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.util.ArrayList;
@@ -14,8 +12,6 @@ import java.util.List;
 @Table(name = "treinos", schema = "core")
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
 public class Treino {
 
     @Id
@@ -26,13 +22,31 @@ public class Treino {
     private String foco;
     private String nivel;
 
-    // Trazemos de volta a lista de exercícios para a Ficha mostrar os detalhes
-    @OneToMany(mappedBy = "treino", cascade = CascadeType.ALL, fetch = FetchType.EAGER, orphanRemoval = true)
+    // LAZY + @OrderBy: a listagem de treinos nao carrega exercicios, e quando
+    // eles sao carregados vem na ordem em que o professor prescreveu.
+    @OneToMany(mappedBy = "treino", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    @OrderBy("ordem ASC")
     private List<Exercicio> exercicios = new ArrayList<>();
 
-    // O JsonIgnore correto para o Angular não entrar em loop com os usuários
-    @ManyToMany(mappedBy = "treinos")
+    @ManyToMany(mappedBy = "treinos", fetch = FetchType.LAZY)
     @JsonIgnore
     private List<Usuario> usuarios = new ArrayList<>();
 
+    public void adicionarExercicio(Exercicio exercicio) {
+        exercicio.setTreino(this);
+        exercicio.setOrdem(this.exercicios.size());
+        this.exercicios.add(exercicio);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Treino outro)) return false;
+        return id != null && id.equals(outro.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        return getClass().hashCode();
+    }
 }

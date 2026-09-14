@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    name: Build e testes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Compilar e rodar os testes
+        # A suite e composta de slices @WebMvcTest e testes unitarios, entao
+        # nao precisa de um Postgres no runner.
+        run: ./mvnw -B verify
+
+      - name: Publicar relatorios de teste
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  migracoes:
+    name: Migracoes Flyway contra Postgres
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: heracles_db
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: adminpassword
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Aplicar as migracoes e validar o mapeamento
+        # Sobe a aplicacao de verdade: as migracoes rodam em ordem e o
+        # ddl-auto=validate compara o schema resultante com as entidades.
+        # Uma migracao que divirja do mapeamento reprova aqui.
+        env:
+          DB_URL: jdbc:postgresql://localhost:5433/heracles_db
+          DB_USERNAME: admin
+          DB_PASSWORD: adminpassword
+          JWT_SECRET: chave-de-ci-com-mais-de-32-bytes-para-hs256
+          CORS_ALLOWED_ORIGINS: http://localhost:4200
+          SPRING_PROFILES_ACTIVE: prod
+        run: |
+          ./mvnw -B -DskipTests spring-boot:run &
+          APP_PID=$!
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:8080/api/auth/login -X POST \
+                 -H 'Content-Type: application/json' -d '{}' \
+               || [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/treinos)" != "000" ]; then
+              echo "Aplicacao respondeu; migracoes aplicadas."
+              kill $APP_PID
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "A aplicacao nao subiu no tempo esperado."
+          kill $APP_PID 2>/dev/null
+          exit 1
