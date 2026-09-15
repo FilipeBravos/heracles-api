@@ -245,13 +245,16 @@ class AssinaturaServiceTest {
     @Test
     @DisplayName("Acesso liberado quando o plano cobre a unidade e a matricula esta em dia")
     void acessoLiberado() {
-        given(repository.buscarVigentePorAluno(10L))
-                .willReturn(Optional.of(assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(10))));
+        LocalDate vencimento = LocalDate.of(2027, 9, 15);
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, vencimento);
+        given(repository.buscarVigentePorAluno(10L)).willReturn(Optional.of(assinatura));
 
         AssinaturaDtos.Acesso acesso = service.conferirAcesso(10L, 1L);
 
         assertThat(acesso.liberado()).isTrue();
         assertThat(acesso.motivo()).isEqualTo(MotivoAcesso.LIBERADO);
+        // A mensagem e lida no balcao: data no formato do pais, nao ISO.
+        assertThat(acesso.mensagem()).contains("15/09/2027");
     }
 
     @Test

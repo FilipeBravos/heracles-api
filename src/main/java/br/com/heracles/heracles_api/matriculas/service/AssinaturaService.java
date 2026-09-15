@@ -20,10 +20,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
 public class AssinaturaService {
+
+    /**
+     * As mensagens de veredito sao lidas no balcao, entao a data sai no
+     * formato do pais. LocalDate.toString() daria ISO (2027-09-15) no meio
+     * de uma frase em portugues.
+     */
+    private static final DateTimeFormatter DATA_BR = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final AssinaturaRepository repository;
     private final PlanoRepository planoRepository;
@@ -167,7 +175,7 @@ public class AssinaturaService {
         }
         if (assinatura.estaVencidaEm(hoje)) {
             return new AssinaturaDtos.Acesso(false, MotivoAcesso.VENCIDA,
-                    "Matricula vencida em %s.".formatted(assinatura.getDataVencimento()), resumo);
+                    "Matricula vencida em %s.".formatted(assinatura.getDataVencimento().format(DATA_BR)), resumo);
         }
         if (!assinatura.getPlano().daAcessoA(unidadeId)) {
             return new AssinaturaDtos.Acesso(false, MotivoAcesso.UNIDADE_NAO_COBERTA,
@@ -176,7 +184,7 @@ public class AssinaturaService {
         }
 
         return new AssinaturaDtos.Acesso(true, MotivoAcesso.LIBERADO,
-                "Acesso liberado ate %s.".formatted(assinatura.getDataVencimento()), resumo);
+                "Acesso liberado ate %s.".formatted(assinatura.getDataVencimento().format(DATA_BR)), resumo);
     }
 
     /**
