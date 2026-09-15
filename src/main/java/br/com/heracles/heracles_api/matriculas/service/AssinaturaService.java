@@ -15,6 +15,7 @@ import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,6 +69,31 @@ public class AssinaturaService {
         return repository.historicoDoAluno(alunoId).stream()
                 .map(assinatura -> AssinaturaDtos.Response.de(assinatura, hoje))
                 .toList();
+    }
+
+    /**
+     * A fila de vencimentos dos proximos `dias`.
+     *
+     * Traz junto as que ja venceram: uma matricula vencida ha uma semana
+     * e mais urgente que uma que vence amanha, e some-la a fila e o que
+     * impede o caso mais grave de desaparecer da tela justamente por ser
+     * grave demais.
+     *
+     * Devolve a contagem completa e so um pedaco da lista — o painel usa
+     * o numero para dizer quantas ficaram de fora.
+     */
+    @Transactional(readOnly = true)
+    public AssinaturaDtos.FilaDeVencimentos vencimentos(int dias, int limite) {
+        LocalDate hoje = LocalDate.now();
+        LocalDate limiteDaJanela = hoje.plusDays(dias);
+
+        List<AssinaturaDtos.Vencimento> itens =
+                repository.vencendoAte(limiteDaJanela, PageRequest.of(0, limite)).stream()
+                        .map(assinatura -> AssinaturaDtos.Vencimento.de(assinatura, hoje))
+                        .toList();
+
+        return new AssinaturaDtos.FilaDeVencimentos(
+                dias, repository.contarVencendoAte(limiteDaJanela), itens);
     }
 
     /**

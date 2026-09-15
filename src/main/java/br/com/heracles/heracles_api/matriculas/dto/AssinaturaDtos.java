@@ -8,6 +8,8 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 public final class AssinaturaDtos {
 
@@ -72,6 +74,51 @@ public final class AssinaturaDtos {
                     assinatura.estaVencidaEm(hoje)
             );
         }
+    }
+
+    /**
+     * Linha da fila de vencimentos.
+     *
+     * `diasParaVencer` vem calculado daqui, e nao do navegador: o dia de
+     * hoje do servidor e o mesmo que decide `vencida` e o veredito da
+     * catraca. Se o front contasse, um relogio adiantado faria a tela
+     * discordar da catraca sobre o mesmo aluno.
+     */
+    public record Vencimento(
+            Long assinaturaId,
+            Long alunoId,
+            String alunoNome,
+            String planoNome,
+            LocalDate dataVencimento,
+            StatusAssinatura status,
+            /** Negativo quando ja venceu. */
+            long diasParaVencer
+    ) {
+        public static Vencimento de(Assinatura assinatura, LocalDate hoje) {
+            return new Vencimento(
+                    assinatura.getId(),
+                    assinatura.getAluno().getId(),
+                    assinatura.getAluno().getNome(),
+                    assinatura.getPlano().getNome(),
+                    assinatura.getDataVencimento(),
+                    assinatura.getStatus(),
+                    ChronoUnit.DAYS.between(hoje, assinatura.getDataVencimento())
+            );
+        }
+    }
+
+    /**
+     * A fila inteira em numero, so um pedaco em lista.
+     *
+     * `total` existe para o painel poder dizer "e mais 14": sem ele, uma
+     * lista truncada em oito parece a fila completa, e e exatamente nesse
+     * ponto que o trabalho some de vista.
+     */
+    public record FilaDeVencimentos(
+            int dias,
+            long total,
+            List<Vencimento> itens
+    ) {
     }
 
     /** Por que o acesso foi liberado ou barrado — o front decide a cor com isto, nao com o texto. */

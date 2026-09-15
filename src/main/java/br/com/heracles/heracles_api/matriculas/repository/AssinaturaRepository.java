@@ -38,6 +38,28 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
     @Query("select a from Assinatura a where a.aluno.id = :alunoId order by a.dataInicio desc")
     List<Assinatura> historicoDoAluno(Long alunoId);
 
+    /**
+     * Fila de vencimentos: vigentes que vencem ate a data limite.
+     *
+     * O <= alcanca tambem as ja vencidas, de proposito. Uma matricula que
+     * venceu ontem e mais urgente que uma que vence amanha — deixa-la de
+     * fora faria o caso mais grave sumir da tela justamente por ser grave
+     * demais. A ordem crescente coloca o atraso maior no topo.
+     */
+    @EntityGraph(attributePaths = {"aluno", "plano"})
+    @Query("""
+            select a from Assinatura a
+            where a.status <> 'CANCELADA' and a.dataVencimento <= :limite
+            order by a.dataVencimento asc, a.id asc
+            """)
+    List<Assinatura> vencendoAte(LocalDate limite, Pageable pageable);
+
+    @Query("""
+            select count(a) from Assinatura a
+            where a.status <> 'CANCELADA' and a.dataVencimento <= :limite
+            """)
+    long contarVencendoAte(LocalDate limite);
+
     boolean existsByTokenParceiroAndStatusNot(String tokenParceiro, StatusAssinatura status);
 
     long countByStatus(StatusAssinatura status);

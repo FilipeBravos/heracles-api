@@ -3,17 +3,21 @@ package br.com.heracles.heracles_api.matriculas.controller;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 
 @RestController
+@Validated
 @RequestMapping("/api/assinaturas")
 public class AssinaturaController {
 
@@ -37,6 +41,17 @@ public class AssinaturaController {
     @GetMapping("/aluno/{alunoId}")
     public List<AssinaturaDtos.Response> historicoDoAluno(@PathVariable Long alunoId) {
         return service.historicoDoAluno(alunoId);
+    }
+
+    /**
+     * Fila de vencimentos do painel: quem vence nos proximos dias — e quem
+     * ja venceu.
+     */
+    @GetMapping("/vencimentos")
+    public AssinaturaDtos.FilaDeVencimentos vencimentos(
+            @RequestParam(defaultValue = "15") @Min(1) @Max(180) int dias,
+            @RequestParam(defaultValue = "8") @Min(1) @Max(50) int limite) {
+        return service.vencimentos(dias, limite);
     }
 
     /** Veredito da catraca: este aluno pode treinar nesta unidade hoje? */

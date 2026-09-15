@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -22,6 +23,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -236,6 +238,57 @@ class AssinaturaServiceTest {
         assertThatThrownBy(() -> service.cancelar(99L))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("ja esta cancelada");
+    }
+
+    // ---------------------------------------------------------------
+    // Fila de vencimentos
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("A fila alcanca as ja vencidas, nao so as que estao por vencer")
+    void filaIncluiVencidas() {
+        LocalDate hoje = LocalDate.now();
+        ArgumentCaptor<LocalDate> limite = ArgumentCaptor.forClass(LocalDate.class);
+        given(repository.vencendoAte(limite.capture(), any())).willReturn(List.of());
+        given(repository.contarVencendoAte(any())).willReturn(0L);
+
+        service.vencimentos(15, 8);
+
+        // A janela vai ate hoje+15; a consulta usa <=, entao tudo que ficou
+        // para tras entra junto. Uma vencida ha uma semana e mais urgente
+        // que uma que vence amanha.
+        assertThat(limite.getValue()).isEqualTo(hoje.plusDays(15));
+    }
+
+    @Test
+    @DisplayName("Devolve a contagem completa junto com o pedaco da lista")
+    void filaDevolveTotalEPedaco() {
+        Assinatura vencida = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(3));
+        given(repository.vencendoAte(any(), any())).willReturn(List.of(vencida));
+        given(repository.contarVencendoAte(any())).willReturn(22L);
+
+        AssinaturaDtos.FilaDeVencimentos fila = service.vencimentos(15, 8);
+
+        // Sem o total, uma lista truncada em oito parece a fila inteira.
+        assertThat(fila.total()).isEqualTo(22L);
+        assertThat(fila.itens()).hasSize(1);
+        assertThat(fila.dias()).isEqualTo(15);
+    }
+
+    @Test
+    @DisplayName("Dias para vencer sai negativo no que ja venceu")
+    void diasParaVencerNegativoNoAtraso() {
+        Assinatura vencida = assinaturaDe(StatusAssinatura.INADIMPLENTE, LocalDate.now().minusDays(3));
+        Assinatura aVencer = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(4));
+        given(repository.vencendoAte(any(), any())).willReturn(List.of(vencida, aVencer));
+        given(repository.contarVencendoAte(any())).willReturn(2L);
+
+        AssinaturaDtos.FilaDeVencimentos fila = service.vencimentos(15, 8);
+
+        assertThat(fila.itens()).extracting(AssinaturaDtos.Vencimento::diasParaVencer)
+                .containsExactly(-3L, 4L);
+        assertThat(fila.itens().get(0).alunoNome()).isEqualTo("Marina Alves");
+        assertThat(fila.itens().get(0).status()).isEqualTo(StatusAssinatura.INADIMPLENTE);
     }
 
     // ---------------------------------------------------------------
