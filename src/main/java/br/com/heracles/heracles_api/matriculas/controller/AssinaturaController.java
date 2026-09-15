@@ -1,0 +1,72 @@
+package br.com.heracles.heracles_api.matriculas.controller;
+
+import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/assinaturas")
+public class AssinaturaController {
+
+    private final AssinaturaService service;
+
+    public AssinaturaController(AssinaturaService service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    public Page<AssinaturaDtos.Response> listar(
+            @PageableDefault(size = 20, sort = "dataVencimento", direction = Sort.Direction.ASC) Pageable pageable) {
+        return service.listar(pageable);
+    }
+
+    @GetMapping("/{id}")
+    public AssinaturaDtos.Response buscarPorId(@PathVariable Long id) {
+        return service.buscarPorId(id);
+    }
+
+    @GetMapping("/aluno/{alunoId}")
+    public List<AssinaturaDtos.Response> historicoDoAluno(@PathVariable Long alunoId) {
+        return service.historicoDoAluno(alunoId);
+    }
+
+    /** Veredito da catraca: este aluno pode treinar nesta unidade hoje? */
+    @GetMapping("/acesso")
+    public AssinaturaDtos.Acesso conferirAcesso(@RequestParam Long alunoId, @RequestParam Long unidadeId) {
+        return service.conferirAcesso(alunoId, unidadeId);
+    }
+
+    @PostMapping
+    public ResponseEntity<AssinaturaDtos.Response> matricular(
+            @RequestBody @Valid AssinaturaDtos.Matricular request, UriComponentsBuilder uriBuilder) {
+        AssinaturaDtos.Response criada = service.matricular(request);
+        var uri = uriBuilder.path("/api/assinaturas/{id}").buildAndExpand(criada.id()).toUri();
+        return ResponseEntity.created(uri).body(criada);
+    }
+
+    @PutMapping("/{id}/renovacoes")
+    public AssinaturaDtos.Response renovar(@PathVariable Long id) {
+        return service.renovar(id);
+    }
+
+    @PutMapping("/{id}/inadimplencia")
+    public AssinaturaDtos.Response marcarInadimplente(@PathVariable Long id) {
+        return service.marcarInadimplente(id);
+    }
+
+    @DeleteMapping("/{id}")
+    public AssinaturaDtos.Response cancelar(@PathVariable Long id) {
+        // Cancelar nao apaga: a assinatura vira CANCELADA com data, e o
+        // historico do aluno continua completo.
+        return service.cancelar(id);
+    }
+}

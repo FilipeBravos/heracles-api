@@ -11,7 +11,19 @@ public record DashboardResumoResponse(
         long alunosInativos,
         long treinosCadastrados,
         long fichasAtribuidas,
+        /**
+         * Matriculas de fato iniciadas no mes.
+         *
+         * Antes era a contagem de cadastros de usuario — um numero que
+         * subia ao cadastrar um professor e nao subia ao matricular um
+         * aluno ja cadastrado. Com o schema matriculas em uso, passa a
+         * contar assinaturas.
+         */
         long novasMatriculasNoMes,
+        /** Matriculas em atraso de pagamento — a fila de cobranca. */
+        long matriculasInadimplentes,
+        /** Vigentes que ja passaram do vencimento: o acesso caiu hoje. */
+        long matriculasVencidas,
         /** Aparelhos fora de operacao agora — o numero que pede acao no dia. */
         long equipamentosEmManutencao,
         long produtosComEstoqueBaixo,

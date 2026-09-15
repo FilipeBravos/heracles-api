@@ -99,6 +99,21 @@ public class SecurityConfig {
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers("/api/equipamentos/**").hasRole("ADMIN")
 
+                        // Matriculas: a recepcao matricula, renova e cobra; o
+                        // cadastro de plano e a tabela de precos ficam com a
+                        // administracao. Cancelar tambem: e irreversivel —
+                        // o aluno precisa ser matriculado de novo.
+                        .requestMatchers(HttpMethod.GET, "/api/planos/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA")
+                        .requestMatchers("/api/planos/**").hasRole("ADMIN")
+
+                        // A conferencia de acesso e pergunta de catraca: quem
+                        // esta recebendo o aluno precisa poder responde-la.
+                        .requestMatchers(HttpMethod.GET, "/api/assinaturas/acesso")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers(HttpMethod.DELETE, "/api/assinaturas/**").hasRole("ADMIN")
+                        .requestMatchers("/api/assinaturas/**").hasAnyRole("ADMIN", "SECRETARIA")
+
                         .requestMatchers("/api/dashboard/**")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
 

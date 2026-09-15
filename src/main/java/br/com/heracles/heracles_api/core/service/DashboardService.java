@@ -4,6 +4,8 @@ import br.com.heracles.heracles_api.core.domain.StatusUsuario;
 import br.com.heracles.heracles_api.core.dto.DashboardResumoResponse;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
+import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
+import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.operacoes.domain.StatusEquipamento;
 import br.com.heracles.heracles_api.operacoes.repository.EquipamentoRepository;
 import br.com.heracles.heracles_api.operacoes.repository.ProdutoRepository;
@@ -26,29 +28,36 @@ public class DashboardService {
     private final EquipamentoRepository equipamentoRepository;
     private final ProdutoRepository produtoRepository;
     private final VendaRepository vendaRepository;
+    private final AssinaturaRepository assinaturaRepository;
 
     public DashboardService(UsuarioRepository usuarioRepository,
                             TreinoRepository treinoRepository,
                             EquipamentoRepository equipamentoRepository,
                             ProdutoRepository produtoRepository,
-                            VendaRepository vendaRepository) {
+                            VendaRepository vendaRepository,
+                            AssinaturaRepository assinaturaRepository) {
         this.usuarioRepository = usuarioRepository;
         this.treinoRepository = treinoRepository;
         this.equipamentoRepository = equipamentoRepository;
         this.produtoRepository = produtoRepository;
         this.vendaRepository = vendaRepository;
+        this.assinaturaRepository = assinaturaRepository;
     }
 
     @Transactional(readOnly = true)
     public DashboardResumoResponse resumo() {
-        LocalDateTime inicioDoMes = LocalDate.now().withDayOfMonth(1).atStartOfDay();
+        LocalDate hoje = LocalDate.now();
+        LocalDate primeiroDiaDoMes = hoje.withDayOfMonth(1);
+        LocalDateTime inicioDoMes = primeiroDiaDoMes.atStartOfDay();
 
         return new DashboardResumoResponse(
                 usuarioRepository.countByStatus(StatusUsuario.ATIVO),
                 usuarioRepository.countByStatus(StatusUsuario.INATIVO),
                 treinoRepository.count(),
                 usuarioRepository.contarUsuariosComTreino(),
-                usuarioRepository.countByDataCadastroAfter(inicioDoMes),
+                assinaturaRepository.countByDataInicioGreaterThanEqual(primeiroDiaDoMes),
+                assinaturaRepository.countByStatus(StatusAssinatura.INADIMPLENTE),
+                assinaturaRepository.contarVencidas(hoje),
                 equipamentoRepository.countByStatusAtual(StatusEquipamento.EM_MANUTENCAO),
                 produtoRepository.countByAtivoTrueAndQuantidadeEstoqueLessThanEqual(LIMITE_ESTOQUE_BAIXO),
                 vendaRepository.countByDataVendaAfter(inicioDoMes),
