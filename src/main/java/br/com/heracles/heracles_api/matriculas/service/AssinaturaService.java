@@ -11,6 +11,7 @@ import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
@@ -21,8 +22,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class AssinaturaService {
@@ -69,6 +74,37 @@ public class AssinaturaService {
         return repository.historicoDoAluno(alunoId).stream()
                 .map(assinatura -> AssinaturaDtos.Response.de(assinatura, hoje))
                 .toList();
+    }
+
+    /**
+     * Matriculas por mes, dos ultimos `meses` meses ate o atual.
+     *
+     * A consulta agregada devolve so os meses que tiveram matricula. Os
+     * demais sao preenchidos com zero aqui: um mes sem matricula
+     * precisa aparecer como uma barra vazia, e nao sumir — se sumisse, o
+     * eixo do tempo comprimiria e o grafico mostraria uma sequencia de
+     * meses bons que nunca existiu.
+     */
+    @Transactional(readOnly = true)
+    public AssinaturaDtos.HistoricoMensal historicoMensal(int meses) {
+        YearMonth mesAtual = YearMonth.from(LocalDate.now());
+        YearMonth primeiro = mesAtual.minusMonths(meses - 1L);
+
+        Map<YearMonth, Long> porMes = repository.contarPorMesDesde(primeiro.atDay(1)).stream()
+                .collect(Collectors.toMap(
+                        c -> YearMonth.of(c.ano(), c.mes()),
+                        ContagemMensal::quantidade));
+
+        List<AssinaturaDtos.PontoMensal> pontos = new ArrayList<>(meses);
+        long total = 0;
+        for (int i = 0; i < meses; i++) {
+            YearMonth mes = primeiro.plusMonths(i);
+            long quantidade = porMes.getOrDefault(mes, 0L);
+            total += quantidade;
+            pontos.add(new AssinaturaDtos.PontoMensal(mes.toString(), quantidade));
+        }
+
+        return new AssinaturaDtos.HistoricoMensal(meses, total, pontos);
     }
 
     /**

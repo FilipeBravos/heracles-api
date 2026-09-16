@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.matriculas.repository;
 
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
+import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -59,6 +60,27 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             where a.status <> 'CANCELADA' and a.dataVencimento <= :limite
             """)
     long contarVencendoAte(LocalDate limite);
+
+    /**
+     * Quantas matriculas comecaram em cada mes, desde a data informada.
+     *
+     * Conta tudo por `dataInicio`, canceladas inclusive: uma matricula que
+     * foi cancelada depois ainda aconteceu naquele mes. Descontar as
+     * canceladas reescreveria o passado a cada cancelamento, e o grafico
+     * de um mes fechado mudaria sozinho.
+     *
+     * Meses sem matricula simplesmente nao voltam desta consulta — quem
+     * preenche o zero e o servico, senao o eixo do tempo mentiria.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.ContagemMensal(
+                       year(a.dataInicio), month(a.dataInicio), count(a))
+            from Assinatura a
+            where a.dataInicio >= :desde
+            group by year(a.dataInicio), month(a.dataInicio)
+            order by year(a.dataInicio), month(a.dataInicio)
+            """)
+    List<ContagemMensal> contarPorMesDesde(LocalDate desde);
 
     boolean existsByTokenParceiroAndStatusNot(String tokenParceiro, StatusAssinatura status);
 

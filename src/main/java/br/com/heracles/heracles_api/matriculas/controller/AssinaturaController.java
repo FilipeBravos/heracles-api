@@ -43,6 +43,13 @@ public class AssinaturaController {
         return service.historicoDoAluno(alunoId);
     }
 
+    /** Serie do grafico de matriculas por mes. */
+    @GetMapping("/historico-mensal")
+    public AssinaturaDtos.HistoricoMensal historicoMensal(
+            @RequestParam(defaultValue = "12") @Min(2) @Max(36) int meses) {
+        return service.historicoMensal(meses);
+    }
+
     /**
      * Fila de vencimentos do painel: quem vence nos proximos dias — e quem
      * ja venceu.

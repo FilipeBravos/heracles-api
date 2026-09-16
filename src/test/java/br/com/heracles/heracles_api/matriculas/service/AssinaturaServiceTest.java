@@ -8,6 +8,7 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.*;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
@@ -23,6 +24,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -289,6 +291,61 @@ class AssinaturaServiceTest {
                 .containsExactly(-3L, 4L);
         assertThat(fila.itens().get(0).alunoNome()).isEqualTo("Marina Alves");
         assertThat(fila.itens().get(0).status()).isEqualTo(StatusAssinatura.INADIMPLENTE);
+    }
+
+    // ---------------------------------------------------------------
+    // Grafico de matriculas por mes
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Mes sem matricula vira zero em vez de sumir da serie")
+    void mesVazioViraZero() {
+        YearMonth mesAtual = YearMonth.from(LocalDate.now());
+        // So o mes atual e o de tres meses atras tiveram matricula.
+        given(repository.contarPorMesDesde(any())).willReturn(List.of(
+                new ContagemMensal(mesAtual.minusMonths(3).getYear(), mesAtual.minusMonths(3).getMonthValue(), 4L),
+                new ContagemMensal(mesAtual.getYear(), mesAtual.getMonthValue(), 7L)));
+
+        AssinaturaDtos.HistoricoMensal historico = service.historicoMensal(6);
+
+        // Seis pontos, nao dois: se os meses vazios sumissem, o eixo do
+        // tempo comprimiria e o grafico mostraria uma sequencia de meses
+        // bons que nunca existiu.
+        assertThat(historico.pontos()).hasSize(6);
+        // Serie de seis meses terminando no atual: [m-5 .. m]. O mes de
+        // tres meses atras cai no indice 2.
+        assertThat(historico.pontos()).extracting(AssinaturaDtos.PontoMensal::quantidade)
+                .containsExactly(0L, 0L, 4L, 0L, 0L, 7L);
+        assertThat(historico.total()).isEqualTo(11L);
+        assertThat(historico.meses()).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("A serie vai do mes mais antigo ao atual, em ordem, como yyyy-MM")
+    void serieEmOrdemAteOMesAtual() {
+        given(repository.contarPorMesDesde(any())).willReturn(List.of());
+        YearMonth mesAtual = YearMonth.from(LocalDate.now());
+
+        AssinaturaDtos.HistoricoMensal historico = service.historicoMensal(12);
+
+        assertThat(historico.pontos()).hasSize(12);
+        assertThat(historico.pontos().get(0).mes()).isEqualTo(mesAtual.minusMonths(11).toString());
+        assertThat(historico.pontos().get(11).mes()).isEqualTo(mesAtual.toString());
+        assertThat(historico.total()).isZero();
+    }
+
+    @Test
+    @DisplayName("A janela consultada comeca no primeiro dia do mes mais antigo")
+    void janelaComecaNoPrimeiroDiaDoMes() {
+        ArgumentCaptor<LocalDate> desde = ArgumentCaptor.forClass(LocalDate.class);
+        given(repository.contarPorMesDesde(desde.capture())).willReturn(List.of());
+
+        service.historicoMensal(12);
+
+        // Comecar no dia de hoje de 11 meses atras deixaria de fora as
+        // matriculas do inicio daquele mes, e a primeira barra sairia baixa.
+        assertThat(desde.getValue())
+                .isEqualTo(YearMonth.from(LocalDate.now()).minusMonths(11).atDay(1));
     }
 
     // ---------------------------------------------------------------
