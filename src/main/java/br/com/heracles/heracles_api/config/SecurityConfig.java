@@ -83,6 +83,37 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/unidades/**").authenticated()
                         .requestMatchers("/api/unidades/**").hasRole("ADMIN")
 
+                        // Loja: a recepcao vende; o cadastro de produto e o
+                        // ajuste de estoque sao da administracao.
+                        .requestMatchers(HttpMethod.GET, "/api/produtos/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA")
+                        .requestMatchers("/api/produtos/**").hasRole("ADMIN")
+                        .requestMatchers("/api/vendas/**").hasAnyRole("ADMIN", "SECRETARIA")
+
+                        // Equipamentos: quem esta no salao abre chamado — o
+                        // professor e quem costuma ver o aparelho quebrar.
+                        // Cadastrar e dar baixa no reparo ficam com a administracao.
+                        .requestMatchers(HttpMethod.GET, "/api/equipamentos/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers(HttpMethod.POST, "/api/equipamentos/*/chamados")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers("/api/equipamentos/**").hasRole("ADMIN")
+
+                        // Matriculas: a recepcao matricula, renova e cobra; o
+                        // cadastro de plano e a tabela de precos ficam com a
+                        // administracao. Cancelar tambem: e irreversivel —
+                        // o aluno precisa ser matriculado de novo.
+                        .requestMatchers(HttpMethod.GET, "/api/planos/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA")
+                        .requestMatchers("/api/planos/**").hasRole("ADMIN")
+
+                        // A conferencia de acesso e pergunta de catraca: quem
+                        // esta recebendo o aluno precisa poder responde-la.
+                        .requestMatchers(HttpMethod.GET, "/api/assinaturas/acesso")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers(HttpMethod.DELETE, "/api/assinaturas/**").hasRole("ADMIN")
+                        .requestMatchers("/api/assinaturas/**").hasAnyRole("ADMIN", "SECRETARIA")
+
                         .requestMatchers("/api/dashboard/**")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
 

@@ -1,5 +1,7 @@
 package br.com.heracles.heracles_api.exception;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -62,6 +64,31 @@ public class GlobalExceptionHandler {
                 "Um ou mais campos nao passaram na validacao.", "validacao");
         detalhe.setProperty("erros", erros);
         return detalhe;
+    }
+
+    /**
+     * Violacao em parametro de rota ou de query (@Min/@Max nos controllers).
+     *
+     * Sem este tratamento, `?dias=9999` virava 500 — indistinguivel de uma
+     * falha real de servidor, quando o problema esta na requisicao.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ProblemDetail tratarParametroInvalido(ConstraintViolationException ex) {
+        Map<String, String> erros = new LinkedHashMap<>();
+        ex.getConstraintViolations().forEach(violacao ->
+                erros.putIfAbsent(nomeDoParametro(violacao), violacao.getMessage()));
+
+        ProblemDetail detalhe = problema(HttpStatus.BAD_REQUEST, "Parametro invalido",
+                "Um ou mais parametros da requisicao estao fora do permitido.", "validacao");
+        detalhe.setProperty("erros", erros);
+        return detalhe;
+    }
+
+    /** O path vem como "metodo.parametro"; ao cliente interessa so o parametro. */
+    private String nomeDoParametro(ConstraintViolation<?> violacao) {
+        String caminho = violacao.getPropertyPath().toString();
+        int ultimoPonto = caminho.lastIndexOf('.');
+        return ultimoPonto >= 0 ? caminho.substring(ultimoPonto + 1) : caminho;
     }
 
     private ProblemDetail problema(HttpStatus status, String titulo, String detalhe, String tipo) {

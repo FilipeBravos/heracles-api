@@ -1,6 +1,10 @@
 package br.com.heracles.heracles_api.security;
 
 import br.com.heracles.heracles_api.core.controller.TreinoController;
+import br.com.heracles.heracles_api.matriculas.controller.AssinaturaController;
+import br.com.heracles.heracles_api.matriculas.controller.PlanoController;
+import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
+import br.com.heracles.heracles_api.matriculas.service.PlanoService;
 import br.com.heracles.heracles_api.core.controller.UsuarioController;
 import br.com.heracles.heracles_api.core.service.TreinoService;
 import br.com.heracles.heracles_api.core.service.UsuarioService;
@@ -15,6 +19,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -25,7 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * A configuracao anterior era anyRequest().permitAll(), entao qualquer um
  * listava, editava e apagava alunos. Estes testes travam o comportamento novo.
  */
-@WebMvcTest(controllers = {UsuarioController.class, TreinoController.class})
+@WebMvcTest(controllers = {UsuarioController.class, TreinoController.class,
+        PlanoController.class, AssinaturaController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
         "heracles.security.jwt.secret=segredo-de-teste-com-mais-de-32-bytes-para-hs256",
@@ -41,6 +47,12 @@ class SecurityConfigTest {
 
     @MockitoBean
     private TreinoService treinoService;
+
+    @MockitoBean
+    private PlanoService planoService;
+
+    @MockitoBean
+    private AssinaturaService assinaturaService;
 
     @Test
     @DisplayName("Requisicao anonima a alunos recebe 401")
@@ -87,6 +99,39 @@ class SecurityConfigTest {
     void professorCriaFicha() throws Exception {
         mockMvc.perform(post("/api/treinos").contentType("application/json").content("{}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = "SECRETARIA")
+    @DisplayName("Secretaria matricula e consulta planos, mas nao mexe na tabela de precos")
+    void secretariaMatriculaMasNaoPrecifica() throws Exception {
+        mockMvc.perform(get("/api/planos")).andExpect(status().isOk());
+        mockMvc.perform(post("/api/assinaturas").contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/planos").contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        // Cancelar e irreversivel: o aluno precisa ser matriculado de novo.
+        mockMvc.perform(delete("/api/assinaturas/1")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "PROFESSOR")
+    @DisplayName("Professor confere acesso na catraca, mas nao ve a carteira de matriculas")
+    void professorConfereAcessoMasNaoListaMatriculas() throws Exception {
+        mockMvc.perform(get("/api/assinaturas/acesso").param("alunoId", "1").param("unidadeId", "1"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/assinaturas")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/planos")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ALUNO")
+    @DisplayName("Aluno nao consulta nem altera matriculas")
+    void alunoNaoAcessaMatriculas() throws Exception {
+        mockMvc.perform(get("/api/assinaturas")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/assinaturas/acesso").param("alunoId", "1").param("unidadeId", "1"))
+                .andExpect(status().isForbidden());
     }
 
     @Test

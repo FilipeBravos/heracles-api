@@ -1,9 +1,7 @@
 package br.com.heracles.heracles_api.core.dto;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 
 import java.util.List;
 
@@ -36,11 +34,40 @@ public record TreinoRequest(
             @Size(max = 100, message = "O nome do exercicio deve ter no maximo 100 caracteres")
             String nome,
 
-            @NotBlank(message = "As repeticoes sao obrigatorias")
-            @Size(max = 50, message = "As repeticoes devem ter no maximo 50 caracteres")
-            String repeticoes,
+            @NotNull(message = "Informe o numero de series")
+            @Min(value = 1, message = "A ficha precisa de pelo menos 1 serie")
+            @Max(value = 20, message = "20 series e o limite por exercicio")
+            Integer series,
+
+            @NotNull(message = "Informe as repeticoes")
+            @Min(value = 1, message = "As repeticoes comecam em 1")
+            @Max(value = 500, message = "500 repeticoes e o limite por serie")
+            Integer repeticoesMin,
+
+            @NotNull(message = "Informe as repeticoes")
+            @Min(value = 1, message = "As repeticoes comecam em 1")
+            @Max(value = 500, message = "500 repeticoes e o limite por serie")
+            Integer repeticoesMax,
+
+            @Size(max = 50, message = "A carga deve ter no maximo 50 caracteres")
+            String carga,
 
             String observacoes
     ) {
+
+        /**
+         * Faixa coerente: o limite superior nao pode ser menor que o inferior.
+         *
+         * Vive aqui, e nao no controller, para que a mensagem chegue ao
+         * formulario junto com os demais erros de campo. Quando um dos lados
+         * e nulo, quem reporta e o @NotNull correspondente.
+         */
+        @AssertTrue(message = "O maximo de repeticoes nao pode ser menor que o minimo")
+        public boolean isFaixaDeRepeticoesCoerente() {
+            if (repeticoesMin == null || repeticoesMax == null) {
+                return true;
+            }
+            return repeticoesMax >= repeticoesMin;
+        }
     }
 }
