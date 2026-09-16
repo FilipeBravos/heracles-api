@@ -121,6 +121,32 @@ public final class AssinaturaDtos {
     ) {
     }
 
+    /**
+     * Um ponto do grafico de matriculas por mes.
+     *
+     * `mes` sai como `yyyy-MM`: chave estavel e sem ambiguidade. O rotulo
+     * legivel ("set/26") e formatado no front, que tem o locale — a API
+     * nao precisa saber em que idioma a tela esta.
+     */
+    public record PontoMensal(
+            String mes,
+            long quantidade
+    ) {
+    }
+
+    /**
+     * A serie inteira, sem buracos.
+     *
+     * `total` e a soma do periodo, que o cabecalho do painel mostra sem
+     * obrigar o leitor a somar as barras de cabeca.
+     */
+    public record HistoricoMensal(
+            int meses,
+            long total,
+            List<PontoMensal> pontos
+    ) {
+    }
+
     /** Por que o acesso foi liberado ou barrado — o front decide a cor com isto, nao com o texto. */
     public enum MotivoAcesso {
         LIBERADO,
