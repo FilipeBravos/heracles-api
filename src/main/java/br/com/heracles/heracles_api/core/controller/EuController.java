@@ -1,5 +1,6 @@
 package br.com.heracles.heracles_api.core.controller;
 
+import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.service.MinhaAreaService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -31,5 +32,18 @@ public class EuController {
     @GetMapping("/treinos")
     public List<TreinoResponse> meusTreinos(@AuthenticationPrincipal Jwt jwt) {
         return service.minhasFichas(jwt.getSubject());
+    }
+
+    /**
+     * A matricula vigente de quem esta autenticado: plano, vencimento e
+     * situacao.
+     *
+     * Devolve 200 com `temMatricula: false` quando nao ha nenhuma. Nao ter
+     * matricula e um estado que o aluno precisa ler na tela — nao um
+     * recurso ausente.
+     */
+    @GetMapping("/matricula")
+    public MinhaMatriculaResponse minhaMatricula(@AuthenticationPrincipal Jwt jwt) {
+        return service.minhaMatricula(jwt.getSubject());
     }
 }
