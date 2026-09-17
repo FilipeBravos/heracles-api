@@ -71,16 +71,35 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/usuarios/*/treinos")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers(HttpMethod.PUT, "/api/usuarios/**").hasAnyRole("ADMIN", "SECRETARIA")
-                        .requestMatchers(HttpMethod.DELETE, "/api/usuarios/**").hasRole("ADMIN")
+                        // Nao ha regra de DELETE em /api/usuarios porque nao
+                        // ha DELETE: aluno nao se apaga, se inativa
+                        // (PUT /{id}/status). Apagar quebraria o historico que
+                        // aponta para ele — assinaturas, vendas, fichas. A
+                        // regra existia e devolvia 405, descrevendo um poder
+                        // que ninguem tem.
                         .requestMatchers(HttpMethod.GET, "/api/usuarios/**")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
 
                         // Prescricao de treino: professor e administracao.
-                        .requestMatchers(HttpMethod.GET, "/api/treinos/**").authenticated()
+                        //
+                        // A leitura era authenticated(), o que dava ao aluno o
+                        // catalogo de modelos de treino da rede inteira.
+                        // core.treinos e catalogo compartilhado, nao ficha
+                        // pessoal — nao ha nada ali que seja "o treino dele".
+                        // Quem le e quem monta a ficha (professor, admin) e
+                        // quem vincula ficha pronta ao aluno (secretaria).
+                        .requestMatchers(HttpMethod.GET, "/api/treinos/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers("/api/treinos/**").hasAnyRole("ADMIN", "PROFESSOR")
 
                         // Estrutura da rede: apenas administracao escreve.
-                        .requestMatchers(HttpMethod.GET, "/api/unidades/**").authenticated()
+                        //
+                        // A leitura tambem era authenticated(), expondo ao
+                        // aluno endereco e telefone de todas as unidades. Os
+                        // formularios de produto, equipamento, plano e
+                        // matricula precisam da lista; o aluno, nao.
+                        .requestMatchers(HttpMethod.GET, "/api/unidades/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers("/api/unidades/**").hasRole("ADMIN")
 
                         // Loja: a recepcao vende; o cadastro de produto e o

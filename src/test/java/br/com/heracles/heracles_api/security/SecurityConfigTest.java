@@ -1,6 +1,8 @@
 package br.com.heracles.heracles_api.security;
 
 import br.com.heracles.heracles_api.core.controller.TreinoController;
+import br.com.heracles.heracles_api.core.controller.UnidadeController;
+import br.com.heracles.heracles_api.core.service.UnidadeService;
 import br.com.heracles.heracles_api.matriculas.controller.AssinaturaController;
 import br.com.heracles.heracles_api.matriculas.controller.PlanoController;
 import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
@@ -31,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * listava, editava e apagava alunos. Estes testes travam o comportamento novo.
  */
 @WebMvcTest(controllers = {UsuarioController.class, TreinoController.class,
-        PlanoController.class, AssinaturaController.class})
+        UnidadeController.class, PlanoController.class, AssinaturaController.class})
 @Import(SecurityConfig.class)
 @TestPropertySource(properties = {
         "heracles.security.jwt.secret=segredo-de-teste-com-mais-de-32-bytes-para-hs256",
@@ -47,6 +49,9 @@ class SecurityConfigTest {
 
     @MockitoBean
     private TreinoService treinoService;
+
+    @MockitoBean
+    private UnidadeService unidadeService;
 
     @MockitoBean
     private PlanoService planoService;
@@ -132,6 +137,27 @@ class SecurityConfigTest {
         mockMvc.perform(get("/api/assinaturas")).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/assinaturas/acesso").param("alunoId", "1").param("unidadeId", "1"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ALUNO")
+    @DisplayName("Aluno nao le o catalogo de treinos nem a lista de unidades")
+    void alunoNaoLeCatalogoNemUnidades() throws Exception {
+        // Eram authenticated(): o aluno enumerava todos os modelos de treino
+        // da rede e as unidades com endereco e telefone. core.treinos e
+        // catalogo compartilhado, nao a ficha dele.
+        mockMvc.perform(get("/api/treinos")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/unidades")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "SECRETARIA")
+    @DisplayName("Secretaria le o catalogo de treinos para vincular ficha ao aluno")
+    void secretariaLeCatalogoParaVincular() throws Exception {
+        // A tela de Alunos vincula ficha pronta, e o dialogo lista os
+        // modelos. Tirar a leitura dela quebraria esse fluxo.
+        mockMvc.perform(get("/api/treinos")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/unidades")).andExpect(status().isOk());
     }
 
     @Test
