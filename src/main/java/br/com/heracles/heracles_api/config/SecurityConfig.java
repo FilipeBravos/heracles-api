@@ -80,6 +80,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/usuarios/**")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
 
+                        // A area do proprio usuario: qualquer autenticado le,
+                        // porque o que ele le e dele. Nenhuma rota sob /api/eu
+                        // aceita id de aluno — o sujeito sai do token, entao
+                        // nao ha o que um perfil possa pedir de outro.
+                        //
+                        // E a unica rota que o perfil ALUNO alcanca.
+                        .requestMatchers("/api/eu/**").authenticated()
+
                         // Prescricao de treino: professor e administracao.
                         //
                         // A leitura era authenticated(), o que dava ao aluno o
