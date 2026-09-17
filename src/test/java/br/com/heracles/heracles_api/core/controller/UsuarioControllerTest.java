@@ -8,6 +8,8 @@ import br.com.heracles.heracles_api.core.service.UsuarioService;
 import br.com.heracles.heracles_api.exception.GlobalExceptionHandler;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -16,6 +18,9 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -47,6 +52,27 @@ class UsuarioControllerTest {
     @MockitoBean
     private UsuarioService service;
 
+    /**
+     * O slice roda com addFilters = false, entao nenhum filtro popula o
+     * contexto — e `@AuthenticationPrincipal Jwt` chegaria nulo ao
+     * controller. O resolver le do SecurityContextHolder, entao e ali que
+     * a autenticacao entra.
+     */
+    @BeforeEach
+    void autenticarComoRecepcao() {
+        Jwt token = Jwt.withTokenValue("token-de-teste")
+                .header("alg", "HS256")
+                .subject("recepcao@heracles.com.br")
+                .claim("roles", List.of("SECRETARIA"))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(token));
+    }
+
+    @AfterEach
+    void limparContexto() {
+        SecurityContextHolder.clearContext();
+    }
+
     private UsuarioResponse alunoSalvo() {
         return new UsuarioResponse(1L, "Maria Silva", "12345678901", "maria@email.com",
                 "(11) 99999-9999", TipoPerfil.ALUNO, StatusUsuario.ATIVO, LocalDateTime.now(), List.of());
@@ -67,7 +93,7 @@ class UsuarioControllerTest {
     @DisplayName("A resposta de usuario nunca carrega a senha")
     void respostaNaoExpoeSenha() throws Exception {
         // Antes: a entidade era serializada direta e o hash saia em toda listagem.
-        given(service.criar(any())).willReturn(alunoSalvo());
+        given(service.criar(any(), any())).willReturn(alunoSalvo());
 
         mockMvc.perform(post("/api/usuarios")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -125,7 +151,7 @@ class UsuarioControllerTest {
     @Test
     @DisplayName("CPF duplicado devolve 409, nao 500 vindo do banco")
     void cpfDuplicadoDevolve409() throws Exception {
-        given(service.criar(any()))
+        given(service.criar(any(), any()))
                 .willThrow(new RegraNegocioException("Ja existe um cadastro com o CPF informado."));
 
         mockMvc.perform(post("/api/usuarios")

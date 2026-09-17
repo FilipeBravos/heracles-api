@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.core.service;
 
 import br.com.heracles.heracles_api.core.domain.Treino;
+import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
@@ -49,7 +50,13 @@ public class UsuarioService {
     }
 
     @Transactional
-    public UsuarioResponse criar(UsuarioRequests.Criar request) {
+    public UsuarioResponse criar(UsuarioRequests.Criar request, String emailDeQuemCria) {
+        Usuario autor = repository.findByEmailIgnoreCase(emailDeQuemCria)
+                .orElseThrow(() -> new RecursoNaoEncontradoException(
+                        "Usuario autenticado nao encontrado."));
+
+        garantirQuePodeCriar(autor.getTipoPerfil(), request.tipoPerfil());
+
         String cpf = normalizarCpf(request.cpf());
 
         if (repository.existsByCpf(cpf)) {
@@ -122,6 +129,30 @@ public class UsuarioService {
     }
 
     /** Guarda sempre so os digitos, para que a unicidade nao dependa da pontuacao digitada. */
+    /**
+     * Quem cria quem.
+     *
+     * Matricular e da recepcao: o cadastro do aluno acompanha a matricula,
+     * e quem recebe o aluno no balcao e quem tem os documentos na mao.
+     *
+     * O resto — professor, secretaria, outro admin — e da administracao. E
+     * isto que fecha a escalacao: `tipoPerfil` vem do corpo da requisicao,
+     * entao sem esta regra bastava a secretaria mandar "ADMIN" para criar
+     * uma conta de administrador, entrar com ela e fazer o que quisesse.
+     */
+    private void garantirQuePodeCriar(TipoPerfil autor, TipoPerfil perfilDesejado) {
+        boolean permitido = perfilDesejado == TipoPerfil.ALUNO
+                ? autor == TipoPerfil.SECRETARIA
+                : autor == TipoPerfil.ADMIN;
+
+        if (!permitido) {
+            throw new RegraNegocioException(perfilDesejado == TipoPerfil.ALUNO
+                    ? "Cadastro de aluno e da secretaria."
+                    : "Cadastro de %s e da administracao.".formatted(
+                            perfilDesejado.name().toLowerCase()));
+        }
+    }
+
     private String normalizarCpf(String cpf) {
         return cpf == null ? null : cpf.replaceAll("\\D", "");
     }
