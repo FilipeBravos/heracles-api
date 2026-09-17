@@ -9,6 +9,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -35,8 +37,11 @@ public class UsuarioController {
 
     @PostMapping
     public ResponseEntity<UsuarioResponse> criar(@RequestBody @Valid UsuarioRequests.Criar request,
+                                                 @AuthenticationPrincipal Jwt jwt,
                                                  UriComponentsBuilder uriBuilder) {
-        UsuarioResponse criado = service.criar(request);
+        // Quem cria sai do token, nunca do corpo: o perfil que a pessoa
+        // pode cadastrar depende de quem ela e.
+        UsuarioResponse criado = service.criar(request, jwt.getSubject());
         var uri = uriBuilder.path("/api/usuarios/{id}").buildAndExpand(criado.id()).toUri();
         return ResponseEntity.created(uri).body(criado);
     }

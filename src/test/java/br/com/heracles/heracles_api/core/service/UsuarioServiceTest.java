@@ -42,6 +42,16 @@ class UsuarioServiceTest {
         return new UsuarioService(repository, treinoRepository, passwordEncoder);
     }
 
+    /** Registra na base quem esta criando — o autor sai do token. */
+    private String autor(TipoPerfil perfil) {
+        Usuario quemCria = new Usuario();
+        quemCria.setId(99L);
+        quemCria.setEmail(perfil.name().toLowerCase() + "@heracles.com.br");
+        quemCria.setTipoPerfil(perfil);
+        given(repository.findByEmailIgnoreCase(quemCria.getEmail())).willReturn(Optional.of(quemCria));
+        return quemCria.getEmail();
+    }
+
     private UsuarioRequests.Criar cadastro(String cpf) {
         return new UsuarioRequests.Criar("Maria Silva", cpf, "maria@email.com",
                 "(11) 99999-9999", TipoPerfil.ALUNO, "SenhaForte123");
@@ -52,7 +62,7 @@ class UsuarioServiceTest {
     void senhaEhCifrada() {
         given(repository.save(any())).willAnswer(invocacao -> invocacao.getArgument(0));
 
-        servico().criar(cadastro("123.456.789-01"));
+        servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA));
 
         ArgumentCaptor<Usuario> captor = ArgumentCaptor.forClass(Usuario.class);
         verify(repository).save(captor.capture());
@@ -69,7 +79,7 @@ class UsuarioServiceTest {
     void cpfEhNormalizado() {
         given(repository.save(any())).willAnswer(invocacao -> invocacao.getArgument(0));
 
-        servico().criar(cadastro("123.456.789-01"));
+        servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA));
 
         ArgumentCaptor<Usuario> captor = ArgumentCaptor.forClass(Usuario.class);
         verify(repository).save(captor.capture());
@@ -82,9 +92,67 @@ class UsuarioServiceTest {
     void cpfDuplicado() {
         given(repository.existsByCpf("12345678901")).willReturn(true);
 
-        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01")))
+        String secretaria = autor(TipoPerfil.SECRETARIA);
+        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), secretaria))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("CPF");
+    }
+
+    @Test
+    @DisplayName("Cadastro de aluno e da secretaria — nem o admin faz")
+    void alunoSoPelaSecretaria() {
+        given(repository.save(any())).willAnswer(i -> i.getArgument(0));
+
+        // Matricular e da recepcao: o cadastro do aluno acompanha a
+        // matricula, e quem recebe o aluno no balcao tem os documentos.
+        assertThat(servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA)).nome())
+                .isEqualTo("Maria Silva");
+
+        String admin = autor(TipoPerfil.ADMIN);
+        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), admin))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("aluno e da secretaria");
+    }
+
+    @Test
+    @DisplayName("A secretaria nao cria um ADMIN — era escalacao de privilegio")
+    void secretariaNaoCriaAdmin() {
+        // tipoPerfil vem do corpo da requisicao. Sem esta regra bastava a
+        // secretaria mandar "ADMIN" para criar uma conta de administrador,
+        // entrar com ela e cadastrar o que quisesse.
+        String secretaria = autor(TipoPerfil.SECRETARIA);
+        UsuarioRequests.Criar virandoAdmin = new UsuarioRequests.Criar(
+                "Invasor", "123.456.789-01", "invasor@email.com",
+                null, TipoPerfil.ADMIN, "SenhaForte123");
+
+        assertThatThrownBy(() -> servico().criar(virandoAdmin, secretaria))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("administracao");
+    }
+
+    @Test
+    @DisplayName("Professor e secretaria sao cadastrados pela administracao")
+    void equipeEhCadastradaPeloAdmin() {
+        given(repository.save(any())).willAnswer(i -> i.getArgument(0));
+        String admin = autor(TipoPerfil.ADMIN);
+
+        for (TipoPerfil perfil : List.of(TipoPerfil.PROFESSOR, TipoPerfil.SECRETARIA, TipoPerfil.ADMIN)) {
+            UsuarioRequests.Criar pedido = new UsuarioRequests.Criar(
+                    "Fulano", "123.456.789-01", perfil + "@email.com",
+                    null, perfil, "SenhaForte123");
+            assertThat(servico().criar(pedido, admin).tipoPerfil()).isEqualTo(perfil);
+        }
+    }
+
+    @Test
+    @DisplayName("Professor nao cadastra ninguem, nem aluno")
+    void professorNaoCadastra() {
+        String professor = autor(TipoPerfil.PROFESSOR);
+
+        // A rota ja recusa o professor, mas a regra nao depende disso:
+        // duas barreiras, e a de dentro nao presume a de fora.
+        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), professor))
+                .isInstanceOf(RegraNegocioException.class);
     }
 
     @Test
