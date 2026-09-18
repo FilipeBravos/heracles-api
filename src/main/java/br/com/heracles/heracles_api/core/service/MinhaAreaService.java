@@ -1,8 +1,10 @@
 package br.com.heracles.heracles_api.core.service;
 
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
+import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
@@ -27,19 +29,37 @@ public class MinhaAreaService {
     private final UsuarioRepository usuarioRepository;
     private final TreinoRepository treinoRepository;
     private final AssinaturaRepository assinaturaRepository;
+    private final HistoricoTreinoAlunoRepository historicoTreinoRepository;
 
     public MinhaAreaService(UsuarioRepository usuarioRepository,
                             TreinoRepository treinoRepository,
-                            AssinaturaRepository assinaturaRepository) {
+                            AssinaturaRepository assinaturaRepository,
+                            HistoricoTreinoAlunoRepository historicoTreinoRepository) {
         this.usuarioRepository = usuarioRepository;
         this.treinoRepository = treinoRepository;
         this.assinaturaRepository = assinaturaRepository;
+        this.historicoTreinoRepository = historicoTreinoRepository;
     }
 
     @Transactional(readOnly = true)
     public List<TreinoResponse> minhasFichas(String emailAutenticado) {
         return treinoRepository.fichasDoAluno(eu(emailAutenticado).getId()).stream()
                 .map(TreinoResponse::de)
+                .toList();
+    }
+
+    /**
+     * Fichas que ja foram do aluno e nao sao mais.
+     *
+     * A atual nao entra aqui — "Meu treino" ja a mostra, e repeti-la seria
+     * a mesma ficha em dois lugares com nomes diferentes. Nome, foco e
+     * nivel vem do registro histórico, nao da ficha viva: ela pode ter
+     * sido renomeada ou apagada desde a troca.
+     */
+    @Transactional(readOnly = true)
+    public List<HistoricoTreinoResponse> historicoDeTreinos(String emailAutenticado) {
+        return historicoTreinoRepository.historicoDoAluno(eu(emailAutenticado).getId()).stream()
+                .map(HistoricoTreinoResponse::de)
                 .toList();
     }
 

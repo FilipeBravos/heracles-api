@@ -1,10 +1,12 @@
 package br.com.heracles.heracles_api.core.service;
 
+import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
+import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
@@ -15,7 +17,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Regras de cadastro de usuarios.
@@ -29,13 +35,16 @@ public class UsuarioService {
 
     private final UsuarioRepository repository;
     private final TreinoRepository treinoRepository;
+    private final HistoricoTreinoAlunoRepository historicoTreinoRepository;
     private final PasswordEncoder passwordEncoder;
 
     public UsuarioService(UsuarioRepository repository,
                           TreinoRepository treinoRepository,
+                          HistoricoTreinoAlunoRepository historicoTreinoRepository,
                           PasswordEncoder passwordEncoder) {
         this.repository = repository;
         this.treinoRepository = treinoRepository;
+        this.historicoTreinoRepository = historicoTreinoRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -105,6 +114,15 @@ public class UsuarioService {
         return UsuarioResponse.comTreinos(usuario);
     }
 
+    /**
+     * Sincroniza a lista de fichas do aluno e registra a troca no historico.
+     *
+     * O vinculo em si (Usuario.treinos) sempre foi um retrato do agora: a
+     * proxima chamada substitui a lista inteira, sem dizer qual ficha saiu
+     * nem por quanto tempo o aluno ficou nela. O historico e o registro
+     * paralelo que guarda isso — fecha o periodo de quem sai, abre o de
+     * quem entra, e nao toca em quem continua.
+     */
     @Transactional
     public UsuarioResponse sincronizarTreinos(Long id, List<Long> treinosIds) {
         Usuario usuario = carregarComTreinos(id);
@@ -115,6 +133,29 @@ public class UsuarioService {
         if (treinos.size() != treinosIds.stream().distinct().count()) {
             throw new RecursoNaoEncontradoException(
                     "Um ou mais treinos informados nao existem mais. Recarregue a lista e tente novamente.");
+        }
+
+        LocalDateTime agora = LocalDateTime.now();
+        Set<Long> antes = usuario.getTreinos().stream().map(Treino::getId).collect(Collectors.toSet());
+        Set<Long> depois = new HashSet<>(treinosIds);
+
+        for (Treino treino : usuario.getTreinos()) {
+            if (!depois.contains(treino.getId())) {
+                historicoTreinoRepository.buscarAbertoPorAlunoETreino(usuario.getId(), treino.getId())
+                        .ifPresent(historico -> historico.encerrar(agora));
+            }
+        }
+        for (Treino treino : treinos) {
+            if (!antes.contains(treino.getId())) {
+                HistoricoTreinoAluno historico = new HistoricoTreinoAluno();
+                historico.setAluno(usuario);
+                historico.setTreino(treino);
+                historico.setTreinoNome(treino.getNome());
+                historico.setTreinoFoco(treino.getFoco());
+                historico.setTreinoNivel(treino.getNivel());
+                historico.setVinculadoEm(agora);
+                historicoTreinoRepository.save(historico);
+            }
         }
 
         usuario.getTreinos().clear();

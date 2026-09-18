@@ -1,9 +1,11 @@
 package br.com.heracles.heracles_api.core.service;
 
 import br.com.heracles.heracles_api.core.domain.Exercicio;
+import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.dto.TreinoRequest;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
+import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,6 +30,9 @@ class TreinoServiceTest {
 
     @Mock
     private TreinoRepository repository;
+
+    @Mock
+    private HistoricoTreinoAlunoRepository historicoTreinoRepository;
 
     @InjectMocks
     private TreinoService service;
@@ -131,5 +137,28 @@ class TreinoServiceTest {
         assertThatThrownBy(() -> service.buscarPorId(404L))
                 .isInstanceOf(RecursoNaoEncontradoException.class)
                 .hasMessageContaining("404");
+    }
+
+    @Test
+    @DisplayName("Apagar a ficha fecha o periodo de quem ainda estava com ela")
+    void apagarFichaFechaHistoricoEmAberto() {
+        given(repository.findById(1L)).willReturn(Optional.of(fichaExistente));
+
+        HistoricoTreinoAluno aberto = new HistoricoTreinoAluno();
+        aberto.setTreino(fichaExistente);
+        aberto.setVinculadoEm(LocalDateTime.now().minusDays(30));
+        given(historicoTreinoRepository.buscarAbertosPorTreino(1L)).willReturn(List.of(aberto));
+
+        // A exclusao desfaz o vinculo direto na colecao, sem passar por
+        // sincronizarTreinos — se o servico nao fechar o periodo aqui,
+        // ninguem mais fecharia.
+        service.deletar(1L);
+
+        assertThat(aberto.estaAberto()).isFalse();
+        assertThat(aberto.getDesvinculadoEm()).isNotNull();
+        // A referencia precisa ser desfeita no mesmo flush em que a ficha e
+        // apagada — o Hibernate recusa a transacao se uma entidade que esta
+        // sendo atualizada ainda apontar para outra que esta sendo removida.
+        assertThat(aberto.getTreino()).isNull();
     }
 }

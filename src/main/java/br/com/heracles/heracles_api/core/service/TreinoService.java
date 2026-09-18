@@ -4,6 +4,7 @@ import br.com.heracles.heracles_api.core.domain.Exercicio;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.dto.TreinoRequest;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
+import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import org.springframework.data.domain.Page;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,9 +24,11 @@ import java.util.stream.Collectors;
 public class TreinoService {
 
     private final TreinoRepository repository;
+    private final HistoricoTreinoAlunoRepository historicoTreinoRepository;
 
-    public TreinoService(TreinoRepository repository) {
+    public TreinoService(TreinoRepository repository, HistoricoTreinoAlunoRepository historicoTreinoRepository) {
         this.repository = repository;
+        this.historicoTreinoRepository = historicoTreinoRepository;
     }
 
     @Transactional(readOnly = true)
@@ -108,6 +112,19 @@ public class TreinoService {
     public void deletar(Long id) {
         Treino treino = repository.findById(id)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Treino", id));
+
+        // Fecha o periodo de quem estava com esta ficha antes de apagar: a
+        // exclusao desfaz o vinculo sem passar por sincronizarTreinos, entao
+        // ninguem mais fecharia o historico se nao for feito aqui.
+        LocalDateTime agora = LocalDateTime.now();
+        historicoTreinoRepository.buscarAbertosPorTreino(id).forEach(historico -> {
+            historico.encerrar(agora);
+            // O nome ja esta gravado no proprio registro; so a referencia
+            // para a linha que vai sumir precisa ser desfeita aqui, no mesmo
+            // flush — o ON DELETE SET NULL cuida do banco, mas o grafo de
+            // objetos em memoria tambem precisa concordar antes do commit.
+            historico.setTreino(null);
+        });
 
         // Desfaz os vinculos N:N antes de apagar, para que nenhum aluno fique
         // apontando para uma ficha inexistente.

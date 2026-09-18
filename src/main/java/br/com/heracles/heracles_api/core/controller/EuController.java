@@ -1,5 +1,6 @@
 package br.com.heracles.heracles_api.core.controller;
 
+import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.service.MinhaAreaService;
@@ -32,6 +33,17 @@ public class EuController {
     @GetMapping("/treinos")
     public List<TreinoResponse> meusTreinos(@AuthenticationPrincipal Jwt jwt) {
         return service.minhasFichas(jwt.getSubject());
+    }
+
+    /**
+     * Fichas que ja foram de quem esta autenticado e nao sao mais.
+     *
+     * A atual não entra: já sai em GET /eu/treinos, e repeti-la aqui seria
+     * a mesma ficha sob dois nomes.
+     */
+    @GetMapping("/treinos/historico")
+    public List<HistoricoTreinoResponse> historicoDeTreinos(@AuthenticationPrincipal Jwt jwt) {
+        return service.historicoDeTreinos(jwt.getSubject());
     }
 
     /**
