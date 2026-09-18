@@ -6,12 +6,14 @@ import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Unidade;
 import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
+import br.com.heracles.heracles_api.core.dto.MeusDadosDtos;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
+import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
@@ -27,6 +29,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -47,6 +51,7 @@ class MinhaAreaServiceTest {
     @Mock private TreinoRepository treinoRepository;
     @Mock private AssinaturaRepository assinaturaRepository;
     @Mock private HistoricoTreinoAlunoRepository historicoTreinoRepository;
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     private MinhaAreaService service;
     private Usuario marina;
@@ -54,12 +59,15 @@ class MinhaAreaServiceTest {
 
     @BeforeEach
     void preparar() {
-        service = new MinhaAreaService(usuarioRepository, treinoRepository, assinaturaRepository, historicoTreinoRepository);
+        service = new MinhaAreaService(
+                usuarioRepository, treinoRepository, assinaturaRepository, historicoTreinoRepository, passwordEncoder);
 
         marina = new Usuario();
         marina.setId(10L);
         marina.setNome("Marina Alves");
         marina.setEmail("marina@ex.com");
+        marina.setTelefone("11999990000");
+        marina.setSenhaHash(passwordEncoder.encode("SenhaAtual123"));
 
         bruno = new Usuario();
         bruno.setId(20L);
@@ -295,6 +303,58 @@ class MinhaAreaServiceTest {
         assinatura.setDataVencimento(vencimento);
         assinatura.setStatus(StatusAssinatura.ATIVA);
         return assinatura;
+    }
+
+    @Test
+    @DisplayName("Meus dados sao os de quem o token identifica")
+    void meusDadosSaoOsDoToken() {
+        MeusDadosDtos.Response resposta = service.meusDados("marina@ex.com");
+
+        assertThat(resposta.nome()).isEqualTo("Marina Alves");
+        assertThat(resposta.email()).isEqualTo("marina@ex.com");
+        assertThat(resposta.telefone()).isEqualTo("11999990000");
+    }
+
+    @Test
+    @DisplayName("Atualizar meus dados muda nome e telefone, nunca e-mail ou CPF")
+    void atualizarMeusDadosMudaNomeETelefone() {
+        MeusDadosDtos.Response resposta = service.atualizarMeusDados(
+                "marina@ex.com", new MeusDadosDtos.Atualizar("Marina Alves Souza", "11988887777"));
+
+        assertThat(resposta.nome()).isEqualTo("Marina Alves Souza");
+        assertThat(resposta.telefone()).isEqualTo("11988887777");
+        // O contrato de entrada nem tem campo de e-mail ou CPF: não há o
+        // que sequestrar mudando um dos dois por engano ou de proposito.
+        assertThat(resposta.email()).isEqualTo("marina@ex.com");
+        assertThat(marina.getEmail()).isEqualTo("marina@ex.com");
+    }
+
+    @Test
+    @DisplayName("Trocar a senha exige acertar a atual")
+    void trocarSenhaExigeAAtual() {
+        assertThatThrownBy(() -> service.trocarSenha(
+                "marina@ex.com", new MeusDadosDtos.TrocarSenha("SenhaErrada", "NovaSenha123")))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("incorreta");
+
+        // A senha antiga continua valendo: a tentativa nao teve efeito.
+        assertThat(passwordEncoder.matches("SenhaAtual123", marina.getSenhaHash())).isTrue();
+    }
+
+    @Test
+    @DisplayName("Acertando a senha atual, a nova senha passa a valer")
+    void trocarSenhaComAAtualCorreta() {
+        service.trocarSenha("marina@ex.com", new MeusDadosDtos.TrocarSenha("SenhaAtual123", "NovaSenha123"));
+
+        assertThat(passwordEncoder.matches("NovaSenha123", marina.getSenhaHash())).isTrue();
+        assertThat(passwordEncoder.matches("SenhaAtual123", marina.getSenhaHash())).isFalse();
+    }
+
+    @Test
+    @DisplayName("Token de usuario que sumiu da base nao vira 500 tambem em meus dados")
+    void tokenOrfaoNaoEstouraEmMeusDados() {
+        assertThatThrownBy(() -> service.meusDados("fantasma@ex.com"))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
     }
 
     private Treino fichaCom(String nome) {

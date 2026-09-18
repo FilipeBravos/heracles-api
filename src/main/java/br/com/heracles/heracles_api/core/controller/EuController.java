@@ -1,12 +1,17 @@
 package br.com.heracles.heracles_api.core.controller;
 
 import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
+import br.com.heracles.heracles_api.core.dto.MeusDadosDtos;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.service.MinhaAreaService;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -57,5 +62,26 @@ public class EuController {
     @GetMapping("/matricula")
     public MinhaMatriculaResponse minhaMatricula(@AuthenticationPrincipal Jwt jwt) {
         return service.minhaMatricula(jwt.getSubject());
+    }
+
+    /** Nome, e-mail e telefone de quem esta autenticado. */
+    @GetMapping("/dados")
+    public MeusDadosDtos.Response meusDados(@AuthenticationPrincipal Jwt jwt) {
+        return service.meusDados(jwt.getSubject());
+    }
+
+    /** Atualiza nome e telefone de quem esta autenticado. E-mail e CPF nao sao enderecaveis aqui. */
+    @PutMapping("/dados")
+    public MeusDadosDtos.Response atualizarMeusDados(@AuthenticationPrincipal Jwt jwt,
+                                                       @RequestBody @Valid MeusDadosDtos.Atualizar request) {
+        return service.atualizarMeusDados(jwt.getSubject(), request);
+    }
+
+    /** Troca a propria senha. Exige a atual — ver MinhaAreaService.trocarSenha. */
+    @PutMapping("/senha")
+    public ResponseEntity<Void> trocarSenha(@AuthenticationPrincipal Jwt jwt,
+                                             @RequestBody @Valid MeusDadosDtos.TrocarSenha request) {
+        service.trocarSenha(jwt.getSubject(), request);
+        return ResponseEntity.noContent().build();
     }
 }
