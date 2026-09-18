@@ -7,13 +7,18 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
+import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
+import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
+import br.com.heracles.heracles_api.matriculas.domain.StatusCobranca;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -27,6 +32,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,19 +45,30 @@ public class AssinaturaService {
      */
     private static final DateTimeFormatter DATA_BR = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
+    /**
+     * Janela padrao de "vence em breve" do relatorio de inadimplencia —
+     * mesma contagem que a tela de Matriculas ja usa no cliente
+     * (`DIAS_PARA_VENCER`), para as duas telas concordarem sobre quem
+     * esta "quase vencendo".
+     */
+    public static final int DIAS_VENCE_EM_BREVE_PADRAO = 7;
+
     private final AssinaturaRepository repository;
     private final PlanoRepository planoRepository;
     private final UsuarioRepository usuarioRepository;
     private final UnidadeRepository unidadeRepository;
+    private final CobrancaRepository cobrancaRepository;
 
     public AssinaturaService(AssinaturaRepository repository,
                              PlanoRepository planoRepository,
                              UsuarioRepository usuarioRepository,
-                             UnidadeRepository unidadeRepository) {
+                             UnidadeRepository unidadeRepository,
+                             CobrancaRepository cobrancaRepository) {
         this.repository = repository;
         this.planoRepository = planoRepository;
         this.usuarioRepository = usuarioRepository;
         this.unidadeRepository = unidadeRepository;
+        this.cobrancaRepository = cobrancaRepository;
     }
 
     @Transactional(readOnly = true)
@@ -170,24 +187,47 @@ public class AssinaturaService {
         assinatura.setPlano(plano);
         assinatura.setOrigem(request.origem());
         assinatura.setTokenParceiro(token);
+        assinatura.setFormaPagamento(request.formaPagamento());
         assinatura.setStatus(StatusAssinatura.ATIVA);
 
         LocalDate inicio = request.dataInicio() != null ? request.dataInicio() : LocalDate.now();
         assinatura.setDataInicio(inicio);
         assinatura.setDataVencimento(inicio.plusMonths(plano.getTipoCobranca().getMesesDeVigencia()));
 
-        return AssinaturaDtos.Response.de(repository.save(assinatura));
+        Assinatura salva = repository.save(assinatura);
+        criarCobranca(salva);
+        return AssinaturaDtos.Response.de(salva);
     }
 
-    /** Pagamento entrou: empurra o vencimento e devolve a assinatura a ATIVA. */
+    /**
+     * Pagamento entrou: empurra o vencimento, devolve a assinatura a ATIVA,
+     * quita a cobranca em aberto (se houver) e gera a do proximo ciclo.
+     *
+     * "Se houver" cobre a assinatura que ja existia antes desta cobranca
+     * nascer — sem cobranca pendente, so ha o que renovar e gerar a
+     * proxima. Depois desta migracao toda assinatura nova ja nasce com
+     * uma, entao o caminho sem cobranca tende a desaparecer com o tempo.
+     */
     @Transactional
     public AssinaturaDtos.Response renovar(Long id) {
         Assinatura assinatura = carregar(id);
-        assinatura.renovar(LocalDate.now());
+        LocalDate hoje = LocalDate.now();
+
+        cobrancaRepository.findByAssinaturaIdAndStatus(assinatura.getId(), StatusCobranca.PENDENTE)
+                .ifPresent(cobranca -> cobranca.confirmarPagamento(hoje));
+        // A cobranca usa GenerationType.IDENTITY: o INSERT da proxima (logo
+        // abaixo) executa na hora, mas o UPDATE desta so seria mandado ao
+        // banco no commit. Sem o flush aqui, as duas cairiam juntas no
+        // indice parcial de "uma pendente por assinatura" e o banco veria
+        // duas pendentes ao mesmo tempo.
+        cobrancaRepository.flush();
+
+        assinatura.renovar(hoje);
+        criarCobranca(assinatura);
         return AssinaturaDtos.Response.de(assinatura);
     }
 
-    /** Pagamento nao entrou: interrompe o acesso sem apagar a matricula. */
+    /** Pagamento nao entrou: interrompe o acesso sem apagar a matricula. A cobranca continua pendente — a divida nao some. */
     @Transactional
     public AssinaturaDtos.Response marcarInadimplente(Long id) {
         Assinatura assinatura = carregar(id);
@@ -199,7 +239,86 @@ public class AssinaturaService {
     public AssinaturaDtos.Response cancelar(Long id) {
         Assinatura assinatura = carregar(id);
         assinatura.cancelar(LocalDate.now());
+        cobrancaRepository.findByAssinaturaIdAndStatus(assinatura.getId(), StatusCobranca.PENDENTE)
+                .ifPresent(Cobranca::cancelar);
         return AssinaturaDtos.Response.de(assinatura);
+    }
+
+    /** Extrato de cobrancas da assinatura, mais recente primeiro. */
+    @Transactional(readOnly = true)
+    public List<CobrancaDtos.Response> historicoCobrancas(Long assinaturaId) {
+        carregar(assinaturaId); // 404 antes de devolver historico vazio de id inexistente
+        return cobrancaRepository.findByAssinaturaIdOrderByDataVencimentoDesc(assinaturaId).stream()
+                .map(CobrancaDtos.Response::de)
+                .toList();
+    }
+
+    /** Contagem por etapa da regua, para o cabecalho do relatorio de inadimplencia. */
+    @Transactional(readOnly = true)
+    public AssinaturaDtos.ResumoInadimplencia resumoInadimplencia(int diasParaVencer) {
+        LocalDate hoje = LocalDate.now();
+        LocalDate limiteDaJanela = hoje.plusDays(diasParaVencer);
+        return new AssinaturaDtos.ResumoInadimplencia(
+                repository.countAtivasVencendoEntre(hoje, limiteDaJanela),
+                repository.countAtivasVencidas(hoje),
+                repository.countByStatus(StatusAssinatura.INADIMPLENTE));
+    }
+
+    /**
+     * O relatorio de inadimplencia em si: quem vence em breve, ja venceu ou
+     * foi marcado inadimplente, com a cobranca em aberto de cada um para a
+     * tela oferecer "confirmar pagamento" na hora.
+     */
+    @Transactional(readOnly = true)
+    public Page<AssinaturaDtos.LinhaInadimplencia> inadimplencia(Pageable pageable, int diasParaVencer) {
+        LocalDate hoje = LocalDate.now();
+        LocalDate limiteDaJanela = hoje.plusDays(diasParaVencer);
+
+        Page<Assinatura> pagina = repository.buscarEmAtencao(limiteDaJanela, pageable);
+
+        List<Long> assinaturaIds = pagina.getContent().stream().map(Assinatura::getId).toList();
+        Map<Long, Cobranca> cobrancasPendentes = cobrancaRepository
+                .findByAssinaturaIdInAndStatus(assinaturaIds, StatusCobranca.PENDENTE).stream()
+                .collect(Collectors.toMap(cobranca -> cobranca.getAssinatura().getId(), cobranca -> cobranca));
+
+        return pagina.map(assinatura -> AssinaturaDtos.LinhaInadimplencia.de(
+                assinatura, cobrancasPendentes.get(assinatura.getId()), hoje));
+    }
+
+    /**
+     * O job diario da regua de cobranca: quem esta ativo mas vencido ha
+     * mais dias do que a tolerancia permite vira INADIMPLENTE sozinho, sem
+     * a secretaria precisar clicar em cada um.
+     */
+    @Transactional
+    public int autoBloquearVencidas(int diasTolerancia) {
+        LocalDate limite = LocalDate.now().minusDays(diasTolerancia);
+        List<Assinatura> vencidas = repository.buscarAtivasVencidasAntesDe(limite);
+        vencidas.forEach(Assinatura::marcarInadimplente);
+        return vencidas.size();
+    }
+
+    /**
+     * Gera a cobranca do ciclo corrente da assinatura, com o codigo
+     * simulado que a tela mostra no lugar de um boleto/PIX de verdade.
+     */
+    private void criarCobranca(Assinatura assinatura) {
+        Cobranca cobranca = new Cobranca();
+        cobranca.setAssinatura(assinatura);
+        cobranca.setValor(assinatura.getPlano().getValorMensal());
+        cobranca.setFormaPagamento(assinatura.getFormaPagamento());
+        cobranca.setDataVencimento(assinatura.getDataVencimento());
+        cobranca.setCodigoSimulado(gerarCodigoSimulado(assinatura.getFormaPagamento()));
+        cobrancaRepository.save(cobranca);
+    }
+
+    /** Cartao nao tem "copia e cola" — so boleto e PIX mostram um codigo na tela. */
+    private String gerarCodigoSimulado(FormaPagamento formaPagamento) {
+        if (formaPagamento == FormaPagamento.CARTAO) {
+            return null;
+        }
+        String sufixo = UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
+        return "%s-SIMULADO-%s".formatted(formaPagamento.name(), sufixo);
     }
 
     /**

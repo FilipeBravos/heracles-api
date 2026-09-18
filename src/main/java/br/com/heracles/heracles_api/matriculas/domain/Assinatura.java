@@ -53,6 +53,11 @@ public class Assinatura {
     @Column(name = "data_cancelamento")
     private LocalDate dataCancelamento;
 
+    /** Como o aluno paga cada ciclo — reaproveitado em toda cobranca gerada para esta assinatura. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "forma_pagamento")
+    private FormaPagamento formaPagamento;
+
     /**
      * Vencida quando o dia de hoje ja passou do vencimento.
      *

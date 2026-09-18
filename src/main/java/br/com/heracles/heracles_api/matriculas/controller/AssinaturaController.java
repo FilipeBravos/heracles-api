@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.matriculas.controller;
 
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -65,6 +66,29 @@ public class AssinaturaController {
     @GetMapping("/acesso")
     public AssinaturaDtos.Acesso conferirAcesso(@RequestParam Long alunoId, @RequestParam Long unidadeId) {
         return service.conferirAcesso(alunoId, unidadeId);
+    }
+
+    /** Extrato de cobrancas (simuladas) desta assinatura, mais recente primeiro. */
+    @GetMapping("/{id}/cobrancas")
+    public List<CobrancaDtos.Response> historicoCobrancas(@PathVariable Long id) {
+        return service.historicoCobrancas(id);
+    }
+
+    /** Cabecalho do relatorio de inadimplencia: quantos em cada etapa da regua. */
+    @GetMapping("/inadimplencia/resumo")
+    public AssinaturaDtos.ResumoInadimplencia resumoInadimplencia(
+            @RequestParam(defaultValue = "" + AssinaturaService.DIAS_VENCE_EM_BREVE_PADRAO)
+            @Min(1) @Max(60) int diasParaVencer) {
+        return service.resumoInadimplencia(diasParaVencer);
+    }
+
+    /** O relatorio de inadimplencia: quem vence em breve, ja venceu ou esta inadimplente. */
+    @GetMapping("/inadimplencia")
+    public Page<AssinaturaDtos.LinhaInadimplencia> inadimplencia(
+            @PageableDefault(size = 20, sort = "dataVencimento", direction = Sort.Direction.ASC) Pageable pageable,
+            @RequestParam(defaultValue = "" + AssinaturaService.DIAS_VENCE_EM_BREVE_PADRAO)
+            @Min(1) @Max(60) int diasParaVencer) {
+        return service.inadimplencia(pageable, diasParaVencer);
     }
 
     @PostMapping
