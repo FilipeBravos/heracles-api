@@ -1,5 +1,7 @@
 package br.com.heracles.heracles_api.core.controller;
 
+import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
 import br.com.heracles.heracles_api.core.service.UsuarioService;
@@ -8,6 +10,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -61,5 +65,25 @@ public class UsuarioController {
     @PutMapping("/{id}/status")
     public UsuarioResponse alternarStatus(@PathVariable Long id) {
         return service.alternarStatus(id);
+    }
+
+    @GetMapping("/{id}/anamnese")
+    public AnamneseDtos.Response buscarAnamnese(@PathVariable Long id) {
+        return service.buscarAnamnese(id);
+    }
+
+    @PutMapping("/{id}/anamnese")
+    public AnamneseDtos.Response salvarAnamnese(@PathVariable Long id,
+                                                @RequestBody @Valid AnamneseDtos.Salvar request) {
+        return service.salvarAnamnese(id, request);
+    }
+
+    @GetMapping("/{id}/foto")
+    public ResponseEntity<byte[]> buscarFoto(@PathVariable Long id) {
+        Usuario usuario = service.buscarFoto(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(usuario.getFotoContentType()))
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+                .body(usuario.getFoto());
     }
 }

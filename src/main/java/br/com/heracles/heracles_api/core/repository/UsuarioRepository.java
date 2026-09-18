@@ -19,11 +19,11 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
      * Com @ManyToMany LAZY e um @EntityGraph explicito, no lugar do EAGER
      * que carregava treinos e exercicios de todo mundo em toda chamada.
      */
-    @EntityGraph(attributePaths = "treinos")
+    @EntityGraph(attributePaths = {"treinos", "planoEscolhido"})
     @Query("select u from Usuario u")
     Page<Usuario> buscarPaginadoComTreinos(Pageable pageable);
 
-    @EntityGraph(attributePaths = "treinos")
+    @EntityGraph(attributePaths = {"treinos", "planoEscolhido"})
     Optional<Usuario> findWithTreinosById(Long id);
 
     Optional<Usuario> findByEmailIgnoreCase(String email);
