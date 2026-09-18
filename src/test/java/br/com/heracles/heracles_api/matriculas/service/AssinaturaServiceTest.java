@@ -11,12 +11,16 @@ import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -33,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -42,6 +47,7 @@ class AssinaturaServiceTest {
     @Mock private PlanoRepository planoRepository;
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private UnidadeRepository unidadeRepository;
+    @Mock private CobrancaRepository cobrancaRepository;
 
     private AssinaturaService service;
 
@@ -52,7 +58,8 @@ class AssinaturaServiceTest {
 
     @BeforeEach
     void preparar() {
-        service = new AssinaturaService(repository, planoRepository, usuarioRepository, unidadeRepository);
+        service = new AssinaturaService(
+                repository, planoRepository, usuarioRepository, unidadeRepository, cobrancaRepository);
 
         centro = new Unidade();
         centro.setId(1L);
@@ -93,7 +100,7 @@ class AssinaturaServiceTest {
         LocalDate inicio = LocalDate.of(2026, 3, 10);
 
         AssinaturaDtos.Response mensal = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, inicio));
+                10L, 3L, OrigemAssinatura.DIRETO, null, inicio, FormaPagamento.PIX));
 
         assertThat(mensal.dataVencimento()).isEqualTo(LocalDate.of(2026, 4, 10));
         assertThat(mensal.status()).isEqualTo(StatusAssinatura.ATIVA);
@@ -101,7 +108,7 @@ class AssinaturaServiceTest {
         // Mesmo pedido, plano anual: quem define o periodo e o plano.
         mensalCentro.setTipoCobranca(TipoCobranca.PACOTE_ANUAL);
         AssinaturaDtos.Response anual = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, inicio));
+                10L, 3L, OrigemAssinatura.DIRETO, null, inicio, FormaPagamento.PIX));
 
         assertThat(anual.dataVencimento()).isEqualTo(LocalDate.of(2027, 3, 10));
     }
@@ -110,7 +117,7 @@ class AssinaturaServiceTest {
     @DisplayName("Sem data de inicio, a matricula comeca hoje")
     void semDataDeInicioComecaHoje() {
         AssinaturaDtos.Response criada = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null));
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX));
 
         assertThat(criada.dataInicio()).isEqualTo(LocalDate.now());
         assertThat(criada.dataVencimento()).isEqualTo(LocalDate.now().plusMonths(1));
@@ -126,7 +133,7 @@ class AssinaturaServiceTest {
         // ele so esta em atraso. Se nao barrasse, bastaria atrasar o
         // pagamento para abrir uma segunda e deixar a primeira para tras.
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null)))
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("ja tem matricula vigente");
     }
@@ -137,7 +144,7 @@ class AssinaturaServiceTest {
         aluno.setTipoPerfil(TipoPerfil.PROFESSOR);
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null)))
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("So alunos se matriculam");
     }
@@ -148,7 +155,7 @@ class AssinaturaServiceTest {
         mensalCentro.setAtivo(false);
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null)))
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("fora de linha");
     }
@@ -157,17 +164,17 @@ class AssinaturaServiceTest {
     @DisplayName("Parceiro exige token; matricula direta recusa token")
     void coerenciaDoTokenDeParceiro() {
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.GYMPASS, "  ", null)))
+                10L, 3L, OrigemAssinatura.GYMPASS, "  ", null, FormaPagamento.PIX)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("exige o codigo do aluno");
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, "GP-123", null)))
+                10L, 3L, OrigemAssinatura.DIRETO, "GP-123", null, FormaPagamento.PIX)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("nao tem codigo de parceiro");
 
         AssinaturaDtos.Response valida = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.TOTALPASS, " TP-987 ", null));
+                10L, 3L, OrigemAssinatura.TOTALPASS, " TP-987 ", null, FormaPagamento.PIX));
         assertThat(valida.tokenParceiro()).isEqualTo("TP-987");
     }
 
@@ -178,7 +185,7 @@ class AssinaturaServiceTest {
                 .willReturn(true);
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.GYMPASS, "GP-123", null)))
+                10L, 3L, OrigemAssinatura.GYMPASS, "GP-123", null, FormaPagamento.PIX)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("ja esta em uso");
     }
@@ -243,6 +250,101 @@ class AssinaturaServiceTest {
     }
 
     // ---------------------------------------------------------------
+    // Cobranca simulada
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Matricular gera a primeira cobranca, pendente, no vencimento da assinatura")
+    void matricularCriaCobrancaPendente() {
+        AssinaturaDtos.Response criada = service.matricular(new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.DIRETO, null, LocalDate.of(2026, 3, 10), FormaPagamento.PIX));
+
+        ArgumentCaptor<Cobranca> captor = ArgumentCaptor.forClass(Cobranca.class);
+        verify(cobrancaRepository).save(captor.capture());
+        Cobranca cobranca = captor.getValue();
+
+        assertThat(cobranca.getValor()).isEqualByComparingTo("129.90");
+        assertThat(cobranca.getFormaPagamento()).isEqualTo(FormaPagamento.PIX);
+        assertThat(cobranca.getDataVencimento()).isEqualTo(criada.dataVencimento());
+        assertThat(cobranca.getStatus()).isEqualTo(StatusCobranca.PENDENTE);
+        // "SIMULADO" no meio do codigo: ninguem pode confundir isto com um
+        // boleto/PIX de verdade, ja que nao ha gateway integrado.
+        assertThat(cobranca.getCodigoSimulado()).startsWith("PIX-SIMULADO-");
+    }
+
+    @Test
+    @DisplayName("Cobranca por cartao nao tem codigo de copia e cola")
+    void cobrancaPorCartaoNaoTemCodigo() {
+        service.matricular(new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.CARTAO));
+
+        ArgumentCaptor<Cobranca> captor = ArgumentCaptor.forClass(Cobranca.class);
+        verify(cobrancaRepository).save(captor.capture());
+        assertThat(captor.getValue().getCodigoSimulado()).isNull();
+    }
+
+    @Test
+    @DisplayName("Renovar quita a cobranca pendente e gera a do proximo ciclo")
+    void renovarQuitaCobrancaEGeraProxima() {
+        LocalDate vencimentoAtual = LocalDate.now().plusDays(5);
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, vencimentoAtual);
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+
+        Cobranca pendente = new Cobranca();
+        pendente.setAssinatura(assinatura);
+        pendente.setStatus(StatusCobranca.PENDENTE);
+        given(cobrancaRepository.findByAssinaturaIdAndStatus(99L, StatusCobranca.PENDENTE))
+                .willReturn(Optional.of(pendente));
+
+        AssinaturaDtos.Response renovada = service.renovar(99L);
+
+        assertThat(pendente.getStatus()).isEqualTo(StatusCobranca.PAGA);
+        assertThat(pendente.getDataPagamento()).isEqualTo(LocalDate.now());
+
+        ArgumentCaptor<Cobranca> captor = ArgumentCaptor.forClass(Cobranca.class);
+        verify(cobrancaRepository).save(captor.capture());
+        // A proxima cobranca vence no novo vencimento da assinatura, nao no antigo.
+        assertThat(captor.getValue().getDataVencimento()).isEqualTo(renovada.dataVencimento());
+        assertThat(captor.getValue().getStatus()).isEqualTo(StatusCobranca.PENDENTE);
+
+        // Sem este flush, o UPDATE que quita a cobranca antiga so vai ao
+        // banco no commit — depois do INSERT da nova, que usa IDENTITY e
+        // insere na hora. As duas cairiam juntas no indice parcial de "uma
+        // pendente por assinatura" (bug real, pego so em teste manual).
+        verify(cobrancaRepository).flush();
+    }
+
+    @Test
+    @DisplayName("Renovar sem cobranca pendente ainda gera a do proximo ciclo")
+    void renovarSemCobrancaPendenteGeraProximaAssimMesmo() {
+        // Cobre a assinatura que ja existia antes da cobranca nascer:
+        // repository.findByAssinaturaIdAndStatus nao foi estubado, entao
+        // devolve Optional.empty() por padrao.
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(5));
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+
+        service.renovar(99L);
+
+        verify(cobrancaRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("Cancelar cancela a cobranca pendente da assinatura")
+    void cancelarCancelaCobrancaPendente() {
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(20));
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+
+        Cobranca pendente = new Cobranca();
+        pendente.setStatus(StatusCobranca.PENDENTE);
+        given(cobrancaRepository.findByAssinaturaIdAndStatus(99L, StatusCobranca.PENDENTE))
+                .willReturn(Optional.of(pendente));
+
+        service.cancelar(99L);
+
+        assertThat(pendente.getStatus()).isEqualTo(StatusCobranca.CANCELADA);
+    }
+
+    // ---------------------------------------------------------------
     // Fila de vencimentos
     // ---------------------------------------------------------------
 
@@ -291,6 +393,91 @@ class AssinaturaServiceTest {
                 .containsExactly(-3L, 4L);
         assertThat(fila.itens().get(0).alunoNome()).isEqualTo("Marina Alves");
         assertThat(fila.itens().get(0).status()).isEqualTo(StatusAssinatura.INADIMPLENTE);
+    }
+
+    // ---------------------------------------------------------------
+    // Regua de cobranca / relatorio de inadimplencia
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("O resumo conta cada etapa da regua separadamente")
+    void resumoContaCadaEtapa() {
+        given(repository.countAtivasVencendoEntre(any(), any())).willReturn(4L);
+        given(repository.countAtivasVencidas(any())).willReturn(2L);
+        given(repository.countByStatus(StatusAssinatura.INADIMPLENTE)).willReturn(3L);
+
+        AssinaturaDtos.ResumoInadimplencia resumo = service.resumoInadimplencia(7);
+
+        assertThat(resumo.venceEmBreve()).isEqualTo(4L);
+        assertThat(resumo.vencidas()).isEqualTo(2L);
+        assertThat(resumo.inadimplentes()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("Cada linha do relatorio traz a cobranca pendente daquela assinatura")
+    void inadimplenciaAnexaCobrancaPendente() {
+        Assinatura vencida = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(3));
+        given(repository.buscarEmAtencao(any(), any()))
+                .willReturn(new PageImpl<>(List.of(vencida)));
+
+        Cobranca pendente = new Cobranca();
+        pendente.setId(55L);
+        pendente.setAssinatura(vencida);
+        pendente.setFormaPagamento(FormaPagamento.BOLETO);
+        pendente.setCodigoSimulado("BOLETO-SIMULADO-ABC123");
+        given(cobrancaRepository.findByAssinaturaIdInAndStatus(List.of(99L), StatusCobranca.PENDENTE))
+                .willReturn(List.of(pendente));
+
+        Page<AssinaturaDtos.LinhaInadimplencia> pagina =
+                service.inadimplencia(PageRequest.of(0, 20), 7);
+
+        AssinaturaDtos.LinhaInadimplencia linha = pagina.getContent().get(0);
+        assertThat(linha.assinaturaId()).isEqualTo(99L);
+        assertThat(linha.vencida()).isTrue();
+        assertThat(linha.diasParaVencer()).isEqualTo(-3L);
+        assertThat(linha.cobrancaPendenteId()).isEqualTo(55L);
+        assertThat(linha.formaPagamento()).isEqualTo(FormaPagamento.BOLETO);
+        assertThat(linha.codigoSimulado()).isEqualTo("BOLETO-SIMULADO-ABC123");
+    }
+
+    @Test
+    @DisplayName("Sem cobranca pendente, a linha do relatorio nao oferece o que confirmar")
+    void inadimplenciaSemCobrancaPendenteDeixaCamposNulos() {
+        Assinatura semCobranca = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(2));
+        given(repository.buscarEmAtencao(any(), any()))
+                .willReturn(new PageImpl<>(List.of(semCobranca)));
+        given(cobrancaRepository.findByAssinaturaIdInAndStatus(any(), any())).willReturn(List.of());
+
+        AssinaturaDtos.LinhaInadimplencia linha =
+                service.inadimplencia(PageRequest.of(0, 20), 7).getContent().get(0);
+
+        assertThat(linha.cobrancaPendenteId()).isNull();
+        assertThat(linha.formaPagamento()).isNull();
+        assertThat(linha.codigoSimulado()).isNull();
+    }
+
+    @Test
+    @DisplayName("O job diario marca inadimplente cada assinatura vencida alem da tolerancia")
+    void autoBloquearMarcaTodasAsRetornadas() {
+        Assinatura primeira = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(10));
+        Assinatura segunda = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(20));
+        ArgumentCaptor<LocalDate> limite = ArgumentCaptor.forClass(LocalDate.class);
+        given(repository.buscarAtivasVencidasAntesDe(limite.capture())).willReturn(List.of(primeira, segunda));
+
+        int quantidade = service.autoBloquearVencidas(5);
+
+        assertThat(quantidade).isEqualTo(2);
+        assertThat(primeira.getStatus()).isEqualTo(StatusAssinatura.INADIMPLENTE);
+        assertThat(segunda.getStatus()).isEqualTo(StatusAssinatura.INADIMPLENTE);
+        assertThat(limite.getValue()).isEqualTo(LocalDate.now().minusDays(5));
+    }
+
+    @Test
+    @DisplayName("Sem ninguem alem da tolerancia, o job nao marca nada")
+    void autoBloquearSemVencidasNaoFazNada() {
+        given(repository.buscarAtivasVencidasAntesDe(any())).willReturn(List.of());
+
+        assertThat(service.autoBloquearVencidas(5)).isZero();
     }
 
     // ---------------------------------------------------------------
@@ -428,6 +615,7 @@ class AssinaturaServiceTest {
         assinatura.setAluno(aluno);
         assinatura.setPlano(mensalCentro);
         assinatura.setOrigem(OrigemAssinatura.DIRETO);
+        assinatura.setFormaPagamento(FormaPagamento.PIX);
         assinatura.setDataInicio(vencimento.minusMonths(1));
         assinatura.setDataVencimento(vencimento);
         assinatura.setStatus(status);

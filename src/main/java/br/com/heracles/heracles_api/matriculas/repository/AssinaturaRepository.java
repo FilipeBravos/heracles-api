@@ -98,4 +98,37 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             where a.status <> 'CANCELADA' and a.dataVencimento < :hoje
             """)
     long contarVencidas(LocalDate hoje);
+
+    /**
+     * A regua de cobranca: quem ja foi marcado inadimplente, ou ainda
+     * esta ativo mas vence dentro da janela (vence-em-breve e ja vencida
+     * inclusas, pelo mesmo motivo de `vencendoAte`).
+     *
+     * Nao inclui CANCELADA nem quem esta em dia fora da janela — essas
+     * nao pedem nenhuma acao da secretaria, e um relatorio de
+     * inadimplencia que lista todo mundo deixa de ser um relatorio.
+     */
+    @EntityGraph(attributePaths = {"aluno", "plano"})
+    @Query("""
+            select a from Assinatura a
+            where a.status = 'INADIMPLENTE'
+               or (a.status = 'ATIVA' and a.dataVencimento <= :limiteDaJanela)
+            """)
+    Page<Assinatura> buscarEmAtencao(LocalDate limiteDaJanela, Pageable pageable);
+
+    @Query("select count(a) from Assinatura a where a.status = 'ATIVA' and a.dataVencimento < :hoje")
+    long countAtivasVencidas(LocalDate hoje);
+
+    @Query("""
+            select count(a) from Assinatura a
+            where a.status = 'ATIVA' and a.dataVencimento >= :hoje and a.dataVencimento <= :limiteDaJanela
+            """)
+    long countAtivasVencendoEntre(LocalDate hoje, LocalDate limiteDaJanela);
+
+    /**
+     * Quem o job diario vai marcar INADIMPLENTE: ativa, mas vencida havia
+     * mais dias do que a tolerancia permite.
+     */
+    @Query("select a from Assinatura a where a.status = 'ATIVA' and a.dataVencimento < :limite")
+    List<Assinatura> buscarAtivasVencidasAntesDe(LocalDate limite);
 }

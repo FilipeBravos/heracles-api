@@ -1,6 +1,8 @@
 package br.com.heracles.heracles_api.matriculas.dto;
 
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
+import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
+import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import jakarta.validation.constraints.NotNull;
@@ -30,7 +32,10 @@ public final class AssinaturaDtos {
             String tokenParceiro,
 
             /** Ausente vale hoje — a matricula de balcao comeca no dia. */
-            LocalDate dataInicio
+            LocalDate dataInicio,
+
+            @NotNull(message = "Informe a forma de pagamento")
+            FormaPagamento formaPagamento
     ) {
         // A data de vencimento nao entra aqui: ela e calculada a partir do
         // periodo do plano. Se viesse do cliente, bastaria editar a
@@ -46,6 +51,7 @@ public final class AssinaturaDtos {
             BigDecimal valorMensal,
             OrigemAssinatura origem,
             String tokenParceiro,
+            FormaPagamento formaPagamento,
             LocalDate dataInicio,
             LocalDate dataVencimento,
             StatusAssinatura status,
@@ -67,6 +73,7 @@ public final class AssinaturaDtos {
                     assinatura.getPlano().getValorMensal(),
                     assinatura.getOrigem(),
                     assinatura.getTokenParceiro(),
+                    assinatura.getFormaPagamento(),
                     assinatura.getDataInicio(),
                     assinatura.getDataVencimento(),
                     assinatura.getStatus(),
@@ -144,6 +151,64 @@ public final class AssinaturaDtos {
             int meses,
             long total,
             List<PontoMensal> pontos
+    ) {
+    }
+
+    /**
+     * Uma linha do relatorio de inadimplencia.
+     *
+     * `diasParaVencer` usa a mesma convencao de `Vencimento` (negativo
+     * quando ja venceu) de proposito: e a mesma classificacao de regua
+     * que a tela de Matriculas ja faz no cliente a partir de
+     * status+vencida+diasParaVencer, e as duas telas precisam ler o
+     * mesmo aluno do mesmo jeito.
+     *
+     * `cobrancaPendenteId`/`formaPagamento`/`codigoSimulado` saem nulos
+     * quando nao ha cobranca em aberto (por exemplo, logo apos cancelar
+     * a assinatura) — a tela nao oferece "confirmar pagamento" nesse caso.
+     */
+    public record LinhaInadimplencia(
+            Long assinaturaId,
+            Long alunoId,
+            String alunoNome,
+            String planoNome,
+            BigDecimal valorMensal,
+            LocalDate dataVencimento,
+            StatusAssinatura status,
+            boolean vencida,
+            long diasParaVencer,
+            Long cobrancaPendenteId,
+            FormaPagamento formaPagamento,
+            String codigoSimulado
+    ) {
+        public static LinhaInadimplencia de(Assinatura assinatura, Cobranca cobrancaPendente, LocalDate hoje) {
+            return new LinhaInadimplencia(
+                    assinatura.getId(),
+                    assinatura.getAluno().getId(),
+                    assinatura.getAluno().getNome(),
+                    assinatura.getPlano().getNome(),
+                    assinatura.getPlano().getValorMensal(),
+                    assinatura.getDataVencimento(),
+                    assinatura.getStatus(),
+                    assinatura.estaVencidaEm(hoje),
+                    ChronoUnit.DAYS.between(hoje, assinatura.getDataVencimento()),
+                    cobrancaPendente != null ? cobrancaPendente.getId() : null,
+                    cobrancaPendente != null ? cobrancaPendente.getFormaPagamento() : null,
+                    cobrancaPendente != null ? cobrancaPendente.getCodigoSimulado() : null
+            );
+        }
+    }
+
+    /**
+     * Contagem por etapa da regua, para o cabecalho do relatorio.
+     *
+     * Nao inclui "em dia": um relatorio de inadimplencia nao precisa
+     * dizer quantos alunos nao pedem nenhuma acao.
+     */
+    public record ResumoInadimplencia(
+            long venceEmBreve,
+            long vencidas,
+            long inadimplentes
     ) {
     }
 
