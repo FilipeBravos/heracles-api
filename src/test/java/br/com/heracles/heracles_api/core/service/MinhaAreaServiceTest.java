@@ -3,9 +3,12 @@ package br.com.heracles.heracles_api.core.service;
 import br.com.heracles.heracles_api.core.domain.Exercicio;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Unidade;
+import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
+import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
@@ -27,6 +30,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +46,7 @@ class MinhaAreaServiceTest {
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private TreinoRepository treinoRepository;
     @Mock private AssinaturaRepository assinaturaRepository;
+    @Mock private HistoricoTreinoAlunoRepository historicoTreinoRepository;
 
     private MinhaAreaService service;
     private Usuario marina;
@@ -49,7 +54,7 @@ class MinhaAreaServiceTest {
 
     @BeforeEach
     void preparar() {
-        service = new MinhaAreaService(usuarioRepository, treinoRepository, assinaturaRepository);
+        service = new MinhaAreaService(usuarioRepository, treinoRepository, assinaturaRepository, historicoTreinoRepository);
 
         marina = new Usuario();
         marina.setId(10L);
@@ -218,6 +223,51 @@ class MinhaAreaServiceTest {
     @DisplayName("Token de usuario que sumiu da base nao vira 500 tambem na matricula")
     void tokenOrfaoNaoEstouraNaMatricula() {
         assertThatThrownBy(() -> service.minhaMatricula("fantasma@ex.com"))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("O historico consulta pelo id de quem o e-mail do token identifica")
+    void historicoSaiDoToken() {
+        ArgumentCaptor<Long> alunoId = ArgumentCaptor.forClass(Long.class);
+        given(historicoTreinoRepository.historicoDoAluno(alunoId.capture())).willReturn(List.of());
+
+        service.historicoDeTreinos("marina@ex.com");
+
+        assertThat(alunoId.getValue()).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("O historico vem com nome, foco e nivel do registro, nao da ficha viva")
+    void historicoVemComOsDadosDoRegistro() {
+        HistoricoTreinoAluno periodo = new HistoricoTreinoAluno();
+        periodo.setTreinoNome("Ficha A - Peito e Triceps");
+        periodo.setTreinoFoco("Hipertrofia");
+        periodo.setTreinoNivel("Intermediario");
+        periodo.setVinculadoEm(LocalDateTime.of(2026, 3, 1, 8, 0));
+        periodo.setDesvinculadoEm(LocalDateTime.of(2026, 6, 15, 8, 0));
+        given(historicoTreinoRepository.historicoDoAluno(10L)).willReturn(List.of(periodo));
+
+        HistoricoTreinoResponse resposta = service.historicoDeTreinos("marina@ex.com").get(0);
+
+        assertThat(resposta.nome()).isEqualTo("Ficha A - Peito e Triceps");
+        assertThat(resposta.foco()).isEqualTo("Hipertrofia");
+        assertThat(resposta.vinculadoEm()).isEqualTo(LocalDate.of(2026, 3, 1));
+        assertThat(resposta.desvinculadoEm()).isEqualTo(LocalDate.of(2026, 6, 15));
+    }
+
+    @Test
+    @DisplayName("Sem ficha anterior o historico vem vazio, nao erro")
+    void semHistoricoNaoEhErro() {
+        given(historicoTreinoRepository.historicoDoAluno(10L)).willReturn(List.of());
+
+        assertThat(service.historicoDeTreinos("marina@ex.com")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Token de usuario que sumiu da base nao vira 500 tambem no historico")
+    void tokenOrfaoNaoEstouraNoHistorico() {
+        assertThatThrownBy(() -> service.historicoDeTreinos("fantasma@ex.com"))
                 .isInstanceOf(RecursoNaoEncontradoException.class);
     }
 

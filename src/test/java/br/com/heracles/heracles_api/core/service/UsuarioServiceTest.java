@@ -1,10 +1,12 @@
 package br.com.heracles.heracles_api.core.service;
 
+import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.StatusUsuario;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
+import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
@@ -15,6 +17,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -25,9 +29,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class UsuarioServiceTest {
 
     @Mock
@@ -36,10 +42,13 @@ class UsuarioServiceTest {
     @Mock
     private TreinoRepository treinoRepository;
 
+    @Mock
+    private HistoricoTreinoAlunoRepository historicoTreinoRepository;
+
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     private UsuarioService servico() {
-        return new UsuarioService(repository, treinoRepository, passwordEncoder);
+        return new UsuarioService(repository, treinoRepository, historicoTreinoRepository, passwordEncoder);
     }
 
     /** Registra na base quem esta criando — o autor sai do token. */
@@ -181,5 +190,76 @@ class UsuarioServiceTest {
 
         assertThatThrownBy(() -> servico().sincronizarTreinos(1L, List.of(5L, 999L)))
                 .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("Vincular ficha nova abre um periodo de historico")
+    void vincularFichaAbreHistorico() {
+        Usuario aluno = new Usuario();
+        aluno.setId(1L);
+        given(repository.findWithTreinosById(1L)).willReturn(Optional.of(aluno));
+
+        Treino ficha = new Treino();
+        ficha.setId(5L);
+        ficha.setNome("Ficha A");
+        ficha.setFoco("Hipertrofia");
+        ficha.setNivel("Intermediario");
+        given(treinoRepository.findAllById(List.of(5L))).willReturn(List.of(ficha));
+
+        servico().sincronizarTreinos(1L, List.of(5L));
+
+        ArgumentCaptor<HistoricoTreinoAluno> salvo = ArgumentCaptor.forClass(HistoricoTreinoAluno.class);
+        verify(historicoTreinoRepository).save(salvo.capture());
+        assertThat(salvo.getValue().getTreinoNome()).isEqualTo("Ficha A");
+        assertThat(salvo.getValue().getTreinoFoco()).isEqualTo("Hipertrofia");
+        assertThat(salvo.getValue().getVinculadoEm()).isNotNull();
+        // Ainda com o aluno: o periodo comeca aberto.
+        assertThat(salvo.getValue().estaAberto()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Trocar a ficha fecha o periodo da antiga e abre o da nova")
+    void trocarFichaFechaAAntigaEAbreANova() {
+        Treino antiga = new Treino();
+        antiga.setId(5L);
+        antiga.setNome("Ficha A");
+
+        Usuario aluno = new Usuario();
+        aluno.setId(1L);
+        aluno.getTreinos().add(antiga);
+        given(repository.findWithTreinosById(1L)).willReturn(Optional.of(aluno));
+
+        Treino nova = new Treino();
+        nova.setId(6L);
+        nova.setNome("Ficha B");
+        given(treinoRepository.findAllById(List.of(6L))).willReturn(List.of(nova));
+
+        HistoricoTreinoAluno periodoAberto = new HistoricoTreinoAluno();
+        given(historicoTreinoRepository.buscarAbertoPorAlunoETreino(1L, 5L))
+                .willReturn(Optional.of(periodoAberto));
+
+        servico().sincronizarTreinos(1L, List.of(6L));
+
+        // A antiga foi fechada, nao apagada: e o registro de que o aluno a treinou.
+        assertThat(periodoAberto.estaAberto()).isFalse();
+        verify(historicoTreinoRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("Manter a mesma ficha nao mexe no historico")
+    void manterAMesmaFichaNaoAbreNemFechaPeriodo() {
+        Treino ficha = new Treino();
+        ficha.setId(5L);
+
+        Usuario aluno = new Usuario();
+        aluno.setId(1L);
+        aluno.getTreinos().add(ficha);
+        given(repository.findWithTreinosById(1L)).willReturn(Optional.of(aluno));
+        given(treinoRepository.findAllById(List.of(5L))).willReturn(List.of(ficha));
+
+        servico().sincronizarTreinos(1L, List.of(5L));
+
+        verify(historicoTreinoRepository, never()).save(any());
+        verify(historicoTreinoRepository, never()).buscarAbertoPorAlunoETreino(any(), any());
     }
 }
