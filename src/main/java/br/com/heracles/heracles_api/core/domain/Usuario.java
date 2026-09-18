@@ -1,10 +1,12 @@
 package br.com.heracles.heracles_api.core.domain;
 
+import br.com.heracles.heracles_api.matriculas.domain.Plano;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +25,36 @@ public class Usuario {
     private String cpf;
     private String email;
     private String telefone;
+
+    // --- Daqui pra baixo, so o aluno usa de fato. Professor, secretaria e
+    //     admin precisam so do que ja esta acima para uma conta de acesso. ---
+
+    private String endereco;
+    private String cep;
+
+    @Column(name = "data_nascimento")
+    private LocalDate dataNascimento;
+
+    /**
+     * Guardada como bytes no proprio banco — ver a migracao V12 para o porque.
+     * Sem @Lob de proposito: no Hibernate 7, byte[] com @Lob mapeia para
+     * "oid" (large object via referencia), e a coluna e "bytea" comum —
+     * o mapeamento sem @Lob e o que bate com o tipo da coluna.
+     */
+    private byte[] foto;
+
+    @Column(name = "foto_content_type")
+    private String fotoContentType;
+
+    /**
+     * So a escolha do aluno na recepcao, sem virar assinatura. O plano
+     * efetivo (o que da acesso de fato) nasce em matriculas.assinaturas
+     * quando a secretaria confirma pela tela de Matriculas — as duas
+     * coisas podem divergir por um tempo, de proposito.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "plano_escolhido_id")
+    private Plano planoEscolhido;
 
     // @JsonIgnore e redundante agora que os controllers so falam em DTOs,
     // mas fica como segunda barreira caso alguem volte a serializar a entidade.

@@ -24,6 +24,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -75,7 +76,9 @@ class UsuarioControllerTest {
 
     private UsuarioResponse alunoSalvo() {
         return new UsuarioResponse(1L, "Maria Silva", "12345678901", "maria@email.com",
-                "(11) 99999-9999", TipoPerfil.ALUNO, StatusUsuario.ATIVO, LocalDateTime.now(), List.of());
+                "(11) 99999-9999", "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20),
+                false, 10L, "Plano Mensal", true, TipoPerfil.ALUNO, StatusUsuario.ATIVO,
+                LocalDateTime.now(), List.of());
     }
 
     private Map<String, Object> cadastroValido() {

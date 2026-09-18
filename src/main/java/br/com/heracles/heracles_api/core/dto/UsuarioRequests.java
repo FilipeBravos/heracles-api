@@ -3,6 +3,8 @@ package br.com.heracles.heracles_api.core.dto;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import jakarta.validation.constraints.*;
 
+import java.time.LocalDate;
+
 /**
  * Contratos de entrada para usuarios.
  *
@@ -17,6 +19,13 @@ public final class UsuarioRequests {
     private UsuarioRequests() {
     }
 
+    /**
+     * Endereco, CEP, data de nascimento e plano escolhido nao levam
+     * @NotBlank/@NotNull aqui: este contrato serve para os quatro perfis, e
+     * so o aluno usa esses campos de fato — professor, secretaria e admin
+     * nao tem "plano escolhido". A obrigatoriedade para aluno e regra de
+     * negocio, verificada em UsuarioService.criar, nao forma do corpo.
+     */
     public record Criar(
             @NotBlank(message = "O nome e obrigatorio")
             @Size(max = 100, message = "O nome deve ter no maximo 100 caracteres")
@@ -36,6 +45,23 @@ public final class UsuarioRequests {
 
             @Size(max = 20, message = "O telefone deve ter no maximo 20 caracteres")
             String telefone,
+
+            @Size(max = 255, message = "O endereco deve ter no maximo 255 caracteres")
+            String endereco,
+
+            @Pattern(regexp = "\\d{5}-?\\d{3}", message = "Informe um CEP valido, com ou sem hifen")
+            String cep,
+
+            @Past(message = "A data de nascimento precisa ser no passado")
+            LocalDate dataNascimento,
+
+            /** Base64 puro, sem o prefixo "data:image/...;base64,". Opcional mesmo para aluno. */
+            String fotoBase64,
+
+            @Pattern(regexp = "image/(jpeg|png|webp)", message = "A foto precisa ser JPEG, PNG ou WebP")
+            String fotoContentType,
+
+            Long planoEscolhidoId,
 
             @NotNull(message = "O perfil e obrigatorio")
             TipoPerfil tipoPerfil,
@@ -64,7 +90,23 @@ public final class UsuarioRequests {
             String email,
 
             @Size(max = 20, message = "O telefone deve ter no maximo 20 caracteres")
-            String telefone
+            String telefone,
+
+            @Size(max = 255, message = "O endereco deve ter no maximo 255 caracteres")
+            String endereco,
+
+            @Pattern(regexp = "\\d{5}-?\\d{3}", message = "Informe um CEP valido, com ou sem hifen")
+            String cep,
+
+            @Past(message = "A data de nascimento precisa ser no passado")
+            LocalDate dataNascimento,
+
+            String fotoBase64,
+
+            @Pattern(regexp = "image/(jpeg|png|webp)", message = "A foto precisa ser JPEG, PNG ou WebP")
+            String fotoContentType,
+
+            Long planoEscolhidoId
     ) {
     }
 

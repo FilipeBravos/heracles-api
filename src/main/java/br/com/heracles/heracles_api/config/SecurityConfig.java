@@ -70,6 +70,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/usuarios/**").hasAnyRole("ADMIN", "SECRETARIA")
                         .requestMatchers(HttpMethod.PUT, "/api/usuarios/*/treinos")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        // Anamnese: quem monta a ficha (professor) precisa poder
+                        // preenche-la tambem, sem ganhar escrita geral em usuarios.
+                        .requestMatchers(HttpMethod.PUT, "/api/usuarios/*/anamnese")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers(HttpMethod.PUT, "/api/usuarios/**").hasAnyRole("ADMIN", "SECRETARIA")
                         // Nao ha regra de DELETE em /api/usuarios porque nao
                         // ha DELETE: aluno nao se apaga, se inativa
