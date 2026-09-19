@@ -125,6 +125,14 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             """)
     long countAtivasVencendoEntre(LocalDate hoje, LocalDate limiteDaJanela);
 
+    /** Mesma janela de countAtivasVencendoEntre, mas com as linhas — usado para gerar os avisos de vencimento. */
+    @EntityGraph(attributePaths = {"aluno", "plano"})
+    @Query("""
+            select a from Assinatura a
+            where a.status = 'ATIVA' and a.dataVencimento >= :hoje and a.dataVencimento <= :limiteDaJanela
+            """)
+    List<Assinatura> buscarAtivasVencendoEntre(LocalDate hoje, LocalDate limiteDaJanela);
+
     /**
      * Quem o job diario vai marcar INADIMPLENTE: ativa, mas vencida havia
      * mais dias do que a tolerancia permite.

@@ -9,8 +9,8 @@ import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.*;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
-import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +36,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
@@ -48,6 +49,7 @@ class AssinaturaServiceTest {
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private UnidadeRepository unidadeRepository;
     @Mock private CobrancaRepository cobrancaRepository;
+    @Mock private CheckinRepository checkinRepository;
 
     private AssinaturaService service;
 
@@ -59,7 +61,8 @@ class AssinaturaServiceTest {
     @BeforeEach
     void preparar() {
         service = new AssinaturaService(
-                repository, planoRepository, usuarioRepository, unidadeRepository, cobrancaRepository);
+                repository, planoRepository, usuarioRepository, unidadeRepository, cobrancaRepository,
+                checkinRepository);
 
         centro = new Unidade();
         centro.setId(1L);
@@ -552,6 +555,14 @@ class AssinaturaServiceTest {
         assertThat(acesso.motivo()).isEqualTo(MotivoAcesso.LIBERADO);
         // A mensagem e lida no balcao: data no formato do pais, nao ISO.
         assertThat(acesso.mensagem()).contains("15/09/2027");
+
+        // A mesma pergunta que a catraca faz vira historico de frequencia.
+        ArgumentCaptor<Checkin> captor = ArgumentCaptor.forClass(Checkin.class);
+        verify(checkinRepository).save(captor.capture());
+        assertThat(captor.getValue().isLiberado()).isTrue();
+        assertThat(captor.getValue().getMotivo()).isEqualTo(MotivoAcesso.LIBERADO);
+        assertThat(captor.getValue().getAssinatura()).isEqualTo(assinatura);
+        assertThat(captor.getValue().getAluno()).isEqualTo(aluno);
     }
 
     @Test
@@ -607,6 +618,44 @@ class AssinaturaServiceTest {
         assertThat(acesso.liberado()).isFalse();
         assertThat(acesso.motivo()).isEqualTo(MotivoAcesso.SEM_MATRICULA);
         assertThat(acesso.assinatura()).isNull();
+
+        // Sem matricula, o check-in ainda e gravado — so sem assinatura pra apontar.
+        ArgumentCaptor<Checkin> captor = ArgumentCaptor.forClass(Checkin.class);
+        verify(checkinRepository).save(captor.capture());
+        assertThat(captor.getValue().isLiberado()).isFalse();
+        assertThat(captor.getValue().getAssinatura()).isNull();
+    }
+
+    // ---------------------------------------------------------------
+    // Historico de frequencia
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("O historico de frequencia devolve os check-ins do aluno")
+    void historicoDeFrequenciaDoAluno() {
+        Checkin checkin = new Checkin();
+        checkin.setAluno(aluno);
+        checkin.setUnidade(centro);
+        checkin.setLiberado(true);
+        checkin.setMotivo(MotivoAcesso.LIBERADO);
+        given(checkinRepository.findByAlunoId(eq(10L), any()))
+                .willReturn(new PageImpl<>(List.of(checkin)));
+
+        Page<br.com.heracles.heracles_api.matriculas.dto.CheckinDtos.Response> pagina =
+                service.historicoCheckins(10L, PageRequest.of(0, 20));
+
+        assertThat(pagina.getContent()).hasSize(1);
+        assertThat(pagina.getContent().get(0).unidadeNome()).isEqualTo("Unidade Centro");
+        assertThat(pagina.getContent().get(0).liberado()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Historico de aluno inexistente e 404, nao lista vazia")
+    void historicoDeFrequenciaAlunoInexistente() {
+        given(usuarioRepository.findById(999L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.historicoCheckins(999L, PageRequest.of(0, 20)))
+                .isInstanceOf(br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException.class);
     }
 
     private Assinatura assinaturaDe(StatusAssinatura status, LocalDate vencimento) {

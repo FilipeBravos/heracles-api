@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.matriculas.dto;
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
+import br.com.heracles.heracles_api.matriculas.domain.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import jakarta.validation.constraints.NotNull;
@@ -210,15 +211,6 @@ public final class AssinaturaDtos {
             long vencidas,
             long inadimplentes
     ) {
-    }
-
-    /** Por que o acesso foi liberado ou barrado — o front decide a cor com isto, nao com o texto. */
-    public enum MotivoAcesso {
-        LIBERADO,
-        SEM_MATRICULA,
-        INADIMPLENTE,
-        VENCIDA,
-        UNIDADE_NAO_COBERTA
     }
 
     /**
