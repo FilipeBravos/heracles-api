@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.matriculas.controller;
 
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
 import jakarta.validation.Valid;
@@ -62,10 +63,24 @@ public class AssinaturaController {
         return service.vencimentos(dias, limite);
     }
 
-    /** Veredito da catraca: este aluno pode treinar nesta unidade hoje? */
+    /**
+     * Veredito da catraca: este aluno pode treinar nesta unidade hoje?
+     *
+     * Cada chamada tambem grava um check-in — e a mesma pergunta que a
+     * recepcao faz na porta, entao a resposta e o historico de frequencia
+     * sao o mesmo evento.
+     */
     @GetMapping("/acesso")
     public AssinaturaDtos.Acesso conferirAcesso(@RequestParam Long alunoId, @RequestParam Long unidadeId) {
         return service.conferirAcesso(alunoId, unidadeId);
+    }
+
+    /** Historico de frequencia do aluno: cada check-in, liberado ou barrado. */
+    @GetMapping("/checkins/aluno/{alunoId}")
+    public Page<CheckinDtos.Response> historicoCheckins(
+            @PathVariable Long alunoId,
+            @PageableDefault(size = 20, sort = "momento", direction = Sort.Direction.DESC) Pageable pageable) {
+        return service.historicoCheckins(alunoId, pageable);
     }
 
     /** Extrato de cobrancas (simuladas) desta assinatura, mais recente primeiro. */

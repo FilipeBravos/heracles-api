@@ -1,23 +1,27 @@
 package br.com.heracles.heracles_api.matriculas.service;
 
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
+import br.com.heracles.heracles_api.core.domain.Unidade;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.repository.UnidadeRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
+import br.com.heracles.heracles_api.matriculas.domain.Checkin;
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
+import br.com.heracles.heracles_api.matriculas.domain.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusCobranca;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
-import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.springframework.data.domain.Page;
@@ -58,17 +62,20 @@ public class AssinaturaService {
     private final UsuarioRepository usuarioRepository;
     private final UnidadeRepository unidadeRepository;
     private final CobrancaRepository cobrancaRepository;
+    private final CheckinRepository checkinRepository;
 
     public AssinaturaService(AssinaturaRepository repository,
                              PlanoRepository planoRepository,
                              UsuarioRepository usuarioRepository,
                              UnidadeRepository unidadeRepository,
-                             CobrancaRepository cobrancaRepository) {
+                             CobrancaRepository cobrancaRepository,
+                             CheckinRepository checkinRepository) {
         this.repository = repository;
         this.planoRepository = planoRepository;
         this.usuarioRepository = usuarioRepository;
         this.unidadeRepository = unidadeRepository;
         this.cobrancaRepository = cobrancaRepository;
+        this.checkinRepository = checkinRepository;
     }
 
     @Transactional(readOnly = true)
@@ -334,20 +341,25 @@ public class AssinaturaService {
      * (atraso, vencimento), que a recepcao resolve no balcao, e so depois
      * a cobertura do plano, que e conversa de troca de plano.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public AssinaturaDtos.Acesso conferirAcesso(Long alunoId, Long unidadeId) {
         Usuario aluno = carregarAluno(alunoId);
-        var unidade = unidadeRepository.findById(unidadeId)
+        Unidade unidade = unidadeRepository.findById(unidadeId)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Unidade", unidadeId));
-
-        LocalDate hoje = LocalDate.now();
-
         Assinatura assinatura = repository.buscarVigentePorAluno(alunoId).orElse(null);
+
+        AssinaturaDtos.Acesso veredito = montarVeredito(aluno, unidade, assinatura, unidadeId);
+        registrarCheckin(aluno, unidade, assinatura, veredito);
+        return veredito;
+    }
+
+    private AssinaturaDtos.Acesso montarVeredito(Usuario aluno, Unidade unidade, Assinatura assinatura, Long unidadeId) {
         if (assinatura == null) {
             return new AssinaturaDtos.Acesso(false, MotivoAcesso.SEM_MATRICULA,
                     "%s nao tem matricula vigente.".formatted(aluno.getNome()), null);
         }
 
+        LocalDate hoje = LocalDate.now();
         AssinaturaDtos.Response resumo = AssinaturaDtos.Response.de(assinatura, hoje);
 
         if (assinatura.getStatus() == StatusAssinatura.INADIMPLENTE) {
@@ -366,6 +378,29 @@ public class AssinaturaService {
 
         return new AssinaturaDtos.Acesso(true, MotivoAcesso.LIBERADO,
                 "Acesso liberado ate %s.".formatted(assinatura.getDataVencimento().format(DATA_BR)), resumo);
+    }
+
+    /**
+     * O historico de frequencia nasce aqui: cada pergunta da catraca vira
+     * um registro, liberado ou barrado. Barrado tambem e frequencia — e o
+     * que explica pra secretaria por que o aluno reclamou na porta.
+     */
+    private void registrarCheckin(Usuario aluno, Unidade unidade, Assinatura assinatura, AssinaturaDtos.Acesso veredito) {
+        Checkin checkin = new Checkin();
+        checkin.setAluno(aluno);
+        checkin.setUnidade(unidade);
+        checkin.setAssinatura(assinatura);
+        checkin.setLiberado(veredito.liberado());
+        checkin.setMotivo(veredito.motivo());
+        checkinRepository.save(checkin);
+    }
+
+    /** Historico de frequencia do aluno, mais recente primeiro. */
+    @Transactional(readOnly = true)
+    public Page<CheckinDtos.Response> historicoCheckins(Long alunoId, Pageable pageable) {
+        carregarAluno(alunoId); // 404 antes de devolver historico vazio de id inexistente
+        return checkinRepository.findByAlunoId(alunoId, pageable)
+                .map(CheckinDtos.Response::de);
     }
 
     /**

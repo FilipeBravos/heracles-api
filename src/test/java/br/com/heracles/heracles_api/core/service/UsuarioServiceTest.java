@@ -6,7 +6,10 @@ import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
+import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
 import br.com.heracles.heracles_api.core.repository.AnamneseRepository;
+import br.com.heracles.heracles_api.core.repository.AvaliacaoFisicaRepository;
 import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
@@ -57,6 +60,9 @@ class UsuarioServiceTest {
     private AnamneseRepository anamneseRepository;
 
     @Mock
+    private AvaliacaoFisicaRepository avaliacaoFisicaRepository;
+
+    @Mock
     private PlanoRepository planoRepository;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -70,7 +76,7 @@ class UsuarioServiceTest {
 
     private UsuarioService servico() {
         return new UsuarioService(repository, treinoRepository, historicoTreinoRepository,
-                anamneseRepository, planoRepository, passwordEncoder);
+                anamneseRepository, avaliacaoFisicaRepository, planoRepository, passwordEncoder);
     }
 
     /** Registra na base quem esta criando — o autor sai do token. */
@@ -488,5 +494,88 @@ class UsuarioServiceTest {
         given(treinoRepository.findAllById(List.of())).willReturn(List.of());
 
         assertThat(servico().sincronizarTreinos(1L, List.of()).treinos()).isEmpty();
+    }
+
+    // ---------------------------------------------------------------
+    // Avaliacao fisica
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Registrar avaliacao fisica calcula o IMC a partir de peso e altura")
+    void registrarAvaliacaoFisicaCalculaImc() {
+        Usuario aluno = new Usuario();
+        aluno.setId(1L);
+        given(repository.findById(1L)).willReturn(Optional.of(aluno));
+        given(avaliacaoFisicaRepository.save(any())).willAnswer(i -> i.getArgument(0));
+
+        AvaliacaoFisicaDtos.Salvar request = new AvaliacaoFisicaDtos.Salvar(
+                LocalDate.of(2026, 1, 10),
+                new java.math.BigDecimal("80.0"), new java.math.BigDecimal("160.0"),
+                null, null, null, null, null, null, null, null);
+
+        AvaliacaoFisicaDtos.Response resposta = servico().registrarAvaliacaoFisica(1L, request);
+
+        // 80 / 1.6^2 = 31.25 -> arredondado pra 31.3
+        assertThat(resposta.imc()).isEqualByComparingTo("31.3");
+        assertThat(resposta.data()).isEqualTo(LocalDate.of(2026, 1, 10));
+    }
+
+    @Test
+    @DisplayName("Sem data informada, a avaliacao fisica vale hoje")
+    void avaliacaoFisicaSemDataValeHoje() {
+        Usuario aluno = new Usuario();
+        aluno.setId(1L);
+        given(repository.findById(1L)).willReturn(Optional.of(aluno));
+        given(avaliacaoFisicaRepository.save(any())).willAnswer(i -> i.getArgument(0));
+
+        AvaliacaoFisicaDtos.Salvar request = new AvaliacaoFisicaDtos.Salvar(
+                null, new java.math.BigDecimal("70"), new java.math.BigDecimal("170"),
+                null, null, null, null, null, null, null, null);
+
+        assertThat(servico().registrarAvaliacaoFisica(1L, request).data()).isEqualTo(LocalDate.now());
+    }
+
+    @Test
+    @DisplayName("Foto da avaliacao exige base64 e content-type juntos")
+    void avaliacaoFisicaFotoExigeParJunto() {
+        Usuario aluno = new Usuario();
+        aluno.setId(1L);
+        given(repository.findById(1L)).willReturn(Optional.of(aluno));
+
+        AvaliacaoFisicaDtos.Salvar request = new AvaliacaoFisicaDtos.Salvar(
+                null, new java.math.BigDecimal("70"), new java.math.BigDecimal("170"),
+                null, null, null, null, null, null,
+                null, "image/png");
+
+        assertThatThrownBy(() -> servico().registrarAvaliacaoFisica(1L, request))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("juntos");
+    }
+
+    @Test
+    @DisplayName("Historico de avaliacao fisica de aluno inexistente e 404")
+    void historicoAvaliacaoFisicaAlunoInexistente() {
+        given(repository.existsById(999L)).willReturn(false);
+
+        assertThatThrownBy(() -> servico().historicoAvaliacoesFisicas(999L))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("Foto de avaliacao de outro aluno nao e encontrada")
+    void fotoDeAvaliacaoDeOutroAlunoNaoEhEncontrada() {
+        Usuario outroAluno = new Usuario();
+        outroAluno.setId(2L);
+
+        AvaliacaoFisica avaliacao = new AvaliacaoFisica();
+        avaliacao.setId(50L);
+        avaliacao.setAluno(outroAluno);
+        avaliacao.setFoto(new byte[]{1, 2, 3});
+        given(avaliacaoFisicaRepository.findById(50L)).willReturn(Optional.of(avaliacao));
+
+        // A avaliacao existe, mas e do aluno 2 — pedida pelo aluno 1, deve
+        // dar 404 igual a se nao existisse, sem revelar que pertence a outro.
+        assertThatThrownBy(() -> servico().buscarFotoAvaliacaoFisica(1L, 50L))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
     }
 }

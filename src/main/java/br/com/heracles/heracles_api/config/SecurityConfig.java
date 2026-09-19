@@ -66,6 +66,11 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/login").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
 
+                        // Avaliacao fisica e trabalho de professor, nao da
+                        // secretaria — diferente do cadastro e da anamnese,
+                        // que ela tambem preenche.
+                        .requestMatchers(HttpMethod.POST, "/api/usuarios/*/avaliacoes-fisicas")
+                            .hasAnyRole("ADMIN", "PROFESSOR")
                         // Cadastro e manutencao de alunos: recepcao e administracao.
                         .requestMatchers(HttpMethod.POST, "/api/usuarios/**").hasAnyRole("ADMIN", "SECRETARIA")
                         .requestMatchers(HttpMethod.PUT, "/api/usuarios/*/treinos")
@@ -141,6 +146,10 @@ public class SecurityConfig {
                         // A conferencia de acesso e pergunta de catraca: quem
                         // esta recebendo o aluno precisa poder responde-la.
                         .requestMatchers(HttpMethod.GET, "/api/assinaturas/acesso")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        // Historico de frequencia: mesmo publico da tela de Alunos,
+                        // que e onde ele aparece.
+                        .requestMatchers(HttpMethod.GET, "/api/assinaturas/checkins/**")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers(HttpMethod.DELETE, "/api/assinaturas/**").hasRole("ADMIN")
                         .requestMatchers("/api/assinaturas/**").hasAnyRole("ADMIN", "SECRETARIA")

@@ -1,7 +1,9 @@
 package br.com.heracles.heracles_api.core.controller;
 
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
+import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
 import br.com.heracles.heracles_api.core.service.UsuarioService;
@@ -11,12 +13,15 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/usuarios")
@@ -85,5 +90,27 @@ public class UsuarioController {
                 .contentType(MediaType.parseMediaType(usuario.getFotoContentType()))
                 .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
                 .body(usuario.getFoto());
+    }
+
+    @GetMapping("/{id}/avaliacoes-fisicas")
+    public List<AvaliacaoFisicaDtos.Response> historicoAvaliacoesFisicas(@PathVariable Long id) {
+        return service.historicoAvaliacoesFisicas(id);
+    }
+
+    @PostMapping("/{id}/avaliacoes-fisicas")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AvaliacaoFisicaDtos.Response registrarAvaliacaoFisica(
+            @PathVariable Long id, @RequestBody @Valid AvaliacaoFisicaDtos.Salvar request) {
+        return service.registrarAvaliacaoFisica(id, request);
+    }
+
+    @GetMapping("/{id}/avaliacoes-fisicas/{avaliacaoId}/foto")
+    public ResponseEntity<byte[]> buscarFotoAvaliacaoFisica(
+            @PathVariable Long id, @PathVariable Long avaliacaoId) {
+        AvaliacaoFisica avaliacao = service.buscarFotoAvaliacaoFisica(id, avaliacaoId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(avaliacao.getFotoContentType()))
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+                .body(avaliacao.getFoto());
     }
 }

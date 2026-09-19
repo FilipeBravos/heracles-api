@@ -1,14 +1,17 @@
 package br.com.heracles.heracles_api.core.service;
 
 import br.com.heracles.heracles_api.core.domain.Anamnese;
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
 import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
+import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
 import br.com.heracles.heracles_api.core.repository.AnamneseRepository;
+import br.com.heracles.heracles_api.core.repository.AvaliacaoFisicaRepository;
 import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
@@ -47,6 +50,7 @@ public class UsuarioService {
     private final TreinoRepository treinoRepository;
     private final HistoricoTreinoAlunoRepository historicoTreinoRepository;
     private final AnamneseRepository anamneseRepository;
+    private final AvaliacaoFisicaRepository avaliacaoFisicaRepository;
     private final PlanoRepository planoRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -54,12 +58,14 @@ public class UsuarioService {
                           TreinoRepository treinoRepository,
                           HistoricoTreinoAlunoRepository historicoTreinoRepository,
                           AnamneseRepository anamneseRepository,
+                          AvaliacaoFisicaRepository avaliacaoFisicaRepository,
                           PlanoRepository planoRepository,
                           PasswordEncoder passwordEncoder) {
         this.repository = repository;
         this.treinoRepository = treinoRepository;
         this.historicoTreinoRepository = historicoTreinoRepository;
         this.anamneseRepository = anamneseRepository;
+        this.avaliacaoFisicaRepository = avaliacaoFisicaRepository;
         this.planoRepository = planoRepository;
         this.passwordEncoder = passwordEncoder;
     }
@@ -254,6 +260,64 @@ public class UsuarioService {
         return UsuarioResponse.comTreinos(usuario, temAnamnese(id));
     }
 
+    /**
+     * O historico de avaliacoes fisicas do aluno, mais recente primeiro.
+     *
+     * Diferente da anamnese, nao ha "ausente vira um objeto vazio": uma
+     * lista vazia ja diz tudo, e nenhuma tela precisa de outro sinal.
+     */
+    @Transactional(readOnly = true)
+    public List<AvaliacaoFisicaDtos.Response> historicoAvaliacoesFisicas(Long alunoId) {
+        garantirQueExiste(alunoId);
+        return avaliacaoFisicaRepository.findByAlunoIdOrderByDataDesc(alunoId).stream()
+                .map(AvaliacaoFisicaDtos.Response::de)
+                .toList();
+    }
+
+    /**
+     * Registra uma avaliacao fisica nova — nunca edita uma existente.
+     *
+     * A anamnese e uma so, atualizada no lugar; a avaliacao fisica e
+     * periodica, e a evolucao esta em comparar uma com a anterior. Uma
+     * medida errada se corrige com uma avaliacao nova, nao reescrevendo
+     * o passado.
+     */
+    @Transactional
+    public AvaliacaoFisicaDtos.Response registrarAvaliacaoFisica(Long alunoId, AvaliacaoFisicaDtos.Salvar request) {
+        Usuario aluno = repository.findById(alunoId)
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Aluno", alunoId));
+
+        AvaliacaoFisica avaliacao = new AvaliacaoFisica();
+        avaliacao.setAluno(aluno);
+        avaliacao.setData(request.data() != null ? request.data() : LocalDate.now());
+        avaliacao.setPesoKg(request.pesoKg());
+        avaliacao.setAlturaCm(request.alturaCm());
+        avaliacao.setPercentualGordura(request.percentualGordura());
+        avaliacao.setCircunferenciaCintura(request.circunferenciaCintura());
+        avaliacao.setCircunferenciaQuadril(request.circunferenciaQuadril());
+        avaliacao.setCircunferenciaBraco(request.circunferenciaBraco());
+        avaliacao.setCircunferenciaCoxa(request.circunferenciaCoxa());
+        avaliacao.setObservacoes(vazioComoNulo(request.observacoes()));
+        aplicarFotoAvaliacao(avaliacao, request.fotoBase64(), request.fotoContentType());
+
+        return AvaliacaoFisicaDtos.Response.de(avaliacaoFisicaRepository.save(avaliacao));
+    }
+
+    /**
+     * Bytes da foto de evolucao. Confere que a avaliacao e mesmo do aluno
+     * da rota — sem isso, o id da avaliacao bastaria pra ver a foto de
+     * qualquer aluno.
+     */
+    @Transactional(readOnly = true)
+    public AvaliacaoFisica buscarFotoAvaliacaoFisica(Long alunoId, Long avaliacaoId) {
+        AvaliacaoFisica avaliacao = avaliacaoFisicaRepository.findById(avaliacaoId)
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Avaliacao fisica", avaliacaoId));
+        if (!avaliacao.getAluno().getId().equals(alunoId) || avaliacao.getFoto() == null) {
+            throw RecursoNaoEncontradoException.de("Avaliacao fisica", avaliacaoId);
+        }
+        return avaliacao;
+    }
+
     private Usuario carregarComTreinos(Long id) {
         return repository.findWithTreinosById(id)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Aluno", id));
@@ -350,7 +414,23 @@ public class UsuarioService {
         if (fotoBase64 == null || fotoContentType == null) {
             throw new RegraNegocioException("Envie a foto e o tipo de conteudo juntos.");
         }
+        usuario.setFoto(decodificarFoto(fotoBase64));
+        usuario.setFotoContentType(fotoContentType);
+    }
 
+    /** Cada avaliacao e uma linha nova, entao nao ha "preservar a foto anterior" — so o par completo ou nada. */
+    private void aplicarFotoAvaliacao(AvaliacaoFisica avaliacao, String fotoBase64, String fotoContentType) {
+        if (fotoBase64 == null && fotoContentType == null) {
+            return;
+        }
+        if (fotoBase64 == null || fotoContentType == null) {
+            throw new RegraNegocioException("Envie a foto e o tipo de conteudo juntos.");
+        }
+        avaliacao.setFoto(decodificarFoto(fotoBase64));
+        avaliacao.setFotoContentType(fotoContentType);
+    }
+
+    private byte[] decodificarFoto(String fotoBase64) {
         byte[] bytes;
         try {
             bytes = Base64.getDecoder().decode(fotoBase64);
@@ -360,9 +440,7 @@ public class UsuarioService {
         if (bytes.length > TAMANHO_MAXIMO_FOTO_BYTES) {
             throw new RegraNegocioException("A foto excede o tamanho maximo de 3 MB.");
         }
-
-        usuario.setFoto(bytes);
-        usuario.setFotoContentType(fotoContentType);
+        return bytes;
     }
 
     private String normalizarCpf(String cpf) {
