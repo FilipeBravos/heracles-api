@@ -1,5 +1,6 @@
 package br.com.heracles.heracles_api.core.service;
 
+import br.com.heracles.heracles_api.core.domain.ContratoAssinado;
 import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.StatusUsuario;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
@@ -10,6 +11,7 @@ import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
 import br.com.heracles.heracles_api.core.repository.AnamneseRepository;
 import br.com.heracles.heracles_api.core.repository.AvaliacaoFisicaRepository;
+import br.com.heracles.heracles_api.core.repository.ContratoAssinadoRepository;
 import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
@@ -63,6 +65,9 @@ class UsuarioServiceTest {
     private AvaliacaoFisicaRepository avaliacaoFisicaRepository;
 
     @Mock
+    private ContratoAssinadoRepository contratoAssinadoRepository;
+
+    @Mock
     private PlanoRepository planoRepository;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -76,7 +81,8 @@ class UsuarioServiceTest {
 
     private UsuarioService servico() {
         return new UsuarioService(repository, treinoRepository, historicoTreinoRepository,
-                anamneseRepository, avaliacaoFisicaRepository, planoRepository, passwordEncoder);
+                anamneseRepository, avaliacaoFisicaRepository, contratoAssinadoRepository,
+                planoRepository, passwordEncoder);
     }
 
     /** Registra na base quem esta criando — o autor sai do token. */
@@ -99,7 +105,7 @@ class UsuarioServiceTest {
     private UsuarioRequests.Criar cadastro(String cpf) {
         return new UsuarioRequests.Criar("Maria Silva", cpf, "maria@email.com",
                 "(11) 99999-9999", "Rua das Flores, 123", "01234-567",
-                LocalDate.of(1990, 5, 20), null, null, PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123");
+                LocalDate.of(1990, 5, 20), null, null, PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
     }
 
     @Test
@@ -107,7 +113,7 @@ class UsuarioServiceTest {
     void senhaEhCifrada() {
         given(repository.save(any())).willAnswer(invocacao -> invocacao.getArgument(0));
 
-        servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA));
+        servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA), null);
 
         ArgumentCaptor<Usuario> captor = ArgumentCaptor.forClass(Usuario.class);
         verify(repository).save(captor.capture());
@@ -124,7 +130,7 @@ class UsuarioServiceTest {
     void cpfEhNormalizado() {
         given(repository.save(any())).willAnswer(invocacao -> invocacao.getArgument(0));
 
-        servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA));
+        servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA), null);
 
         ArgumentCaptor<Usuario> captor = ArgumentCaptor.forClass(Usuario.class);
         verify(repository).save(captor.capture());
@@ -138,7 +144,7 @@ class UsuarioServiceTest {
         given(repository.existsByCpf("12345678901")).willReturn(true);
 
         String secretaria = autor(TipoPerfil.SECRETARIA);
-        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), secretaria))
+        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("CPF");
     }
@@ -150,11 +156,11 @@ class UsuarioServiceTest {
 
         // Matricular e da recepcao: o cadastro do aluno acompanha a
         // matricula, e quem recebe o aluno no balcao tem os documentos.
-        assertThat(servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA)).nome())
+        assertThat(servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA), null).nome())
                 .isEqualTo("Maria Silva");
 
         String admin = autor(TipoPerfil.ADMIN);
-        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), admin))
+        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), admin, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("aluno e da secretaria");
     }
@@ -168,9 +174,9 @@ class UsuarioServiceTest {
         String secretaria = autor(TipoPerfil.SECRETARIA);
         UsuarioRequests.Criar virandoAdmin = new UsuarioRequests.Criar(
                 "Invasor", "123.456.789-01", "invasor@email.com",
-                null, null, null, null, null, null, null, TipoPerfil.ADMIN, "SenhaForte123");
+                null, null, null, null, null, null, null, TipoPerfil.ADMIN, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(virandoAdmin, secretaria))
+        assertThatThrownBy(() -> servico().criar(virandoAdmin, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("administracao");
     }
@@ -184,8 +190,8 @@ class UsuarioServiceTest {
         for (TipoPerfil perfil : List.of(TipoPerfil.PROFESSOR, TipoPerfil.SECRETARIA, TipoPerfil.ADMIN)) {
             UsuarioRequests.Criar pedido = new UsuarioRequests.Criar(
                     "Fulano", "123.456.789-01", perfil + "@email.com",
-                    null, null, null, null, null, null, null, perfil, "SenhaForte123");
-            assertThat(servico().criar(pedido, admin).tipoPerfil()).isEqualTo(perfil);
+                    null, null, null, null, null, null, null, perfil, "SenhaForte123", "Maria Silva", true);
+            assertThat(servico().criar(pedido, admin, null).tipoPerfil()).isEqualTo(perfil);
         }
     }
 
@@ -196,7 +202,7 @@ class UsuarioServiceTest {
 
         // A rota ja recusa o professor, mas a regra nao depende disso:
         // duas barreiras, e a de dentro nao presume a de fora.
-        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), professor))
+        assertThatThrownBy(() -> servico().criar(cadastro("123.456.789-01"), professor, null))
                 .isInstanceOf(RegraNegocioException.class);
     }
 
@@ -207,9 +213,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar semEndereco = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 null, "01234-567", LocalDate.of(1990, 5, 20), null, null, PLANO_ID,
-                TipoPerfil.ALUNO, "SenhaForte123");
+                TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(semEndereco, secretaria))
+        assertThatThrownBy(() -> servico().criar(semEndereco, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("endereco");
     }
@@ -221,9 +227,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar semCep = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", null, LocalDate.of(1990, 5, 20), null, null, PLANO_ID,
-                TipoPerfil.ALUNO, "SenhaForte123");
+                TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(semCep, secretaria))
+        assertThatThrownBy(() -> servico().criar(semCep, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("CEP");
     }
@@ -235,9 +241,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar semNascimento = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", null, null, null, PLANO_ID,
-                TipoPerfil.ALUNO, "SenhaForte123");
+                TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(semNascimento, secretaria))
+        assertThatThrownBy(() -> servico().criar(semNascimento, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("data de nascimento");
     }
@@ -249,11 +255,81 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar semPlano = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20), null, null, null,
-                TipoPerfil.ALUNO, "SenhaForte123");
+                TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(semPlano, secretaria))
+        assertThatThrownBy(() -> servico().criar(semPlano, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("plano");
+    }
+
+    @Test
+    @DisplayName("Cadastro de aluno exige nome digitado no contrato")
+    void cadastroDeAlunoExigeAssinaturaContrato() {
+        String secretaria = autor(TipoPerfil.SECRETARIA);
+        UsuarioRequests.Criar semAssinatura = new UsuarioRequests.Criar(
+                "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
+                "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20), null, null, PLANO_ID,
+                TipoPerfil.ALUNO, "SenhaForte123", null, true);
+
+        assertThatThrownBy(() -> servico().criar(semAssinatura, secretaria, null))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("contrato");
+    }
+
+    @Test
+    @DisplayName("Cadastro de aluno exige aceite do contrato, nao so o nome digitado")
+    void cadastroDeAlunoExigeAceiteDoContrato() {
+        String secretaria = autor(TipoPerfil.SECRETARIA);
+        UsuarioRequests.Criar semAceite = new UsuarioRequests.Criar(
+                "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
+                "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20), null, null, PLANO_ID,
+                TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", false);
+
+        assertThatThrownBy(() -> servico().criar(semAceite, secretaria, null))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("aceitar");
+    }
+
+    @Test
+    @DisplayName("Cadastrar aluno assina o contrato com o nome digitado, o texto vigente e o IP de quem preencheu")
+    void cadastroDeAlunoAssinaOContrato() {
+        given(repository.save(any())).willAnswer(i -> {
+            Usuario salvo = i.getArgument(0);
+            salvo.setId(1L);
+            return salvo;
+        });
+        given(contratoAssinadoRepository.save(any())).willAnswer(i -> i.getArgument(0));
+
+        servico().criar(cadastro("123.456.789-01"), autor(TipoPerfil.SECRETARIA), "203.0.113.7");
+
+        ArgumentCaptor<ContratoAssinado> captor = ArgumentCaptor.forClass(ContratoAssinado.class);
+        verify(contratoAssinadoRepository).save(captor.capture());
+        assertThat(captor.getValue().getNomeDigitado()).isEqualTo("Maria Silva");
+        assertThat(captor.getValue().getTextoContrato()).isEqualTo(UsuarioService.TEXTO_CONTRATO_PADRAO);
+        assertThat(captor.getValue().getIpOrigem()).isEqualTo("203.0.113.7");
+        assertThat(captor.getValue().getAluno().getId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("Cadastrar professor, secretaria ou admin nao assina contrato nenhum")
+    void cadastroDeEquipeNaoAssinaContrato() {
+        given(repository.save(any())).willAnswer(i -> i.getArgument(0));
+
+        servico().criar(new UsuarioRequests.Criar(
+                "Fulano", "123.456.789-01", "fulano@email.com",
+                null, null, null, null, null, null, null, TipoPerfil.PROFESSOR, "SenhaForte123", null, null),
+                autor(TipoPerfil.ADMIN), null);
+
+        verify(contratoAssinadoRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Aluno sem contrato assinado (cadastro anterior a esta funcionalidade) devolve o estado ausente")
+    void contratoAusenteParaCadastroAntigo() {
+        given(repository.existsById(1L)).willReturn(true);
+        given(contratoAssinadoRepository.findByAlunoId(1L)).willReturn(Optional.empty());
+
+        assertThat(servico().buscarContrato(1L).assinado()).isFalse();
     }
 
     @Test
@@ -264,9 +340,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar comPlanoInexistente = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20), null, null, 999L,
-                TipoPerfil.ALUNO, "SenhaForte123");
+                TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(comPlanoInexistente, secretaria))
+        assertThatThrownBy(() -> servico().criar(comPlanoInexistente, secretaria, null))
                 .isInstanceOf(RecursoNaoEncontradoException.class);
     }
 
@@ -281,9 +357,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar comPlanoInativo = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20), null, null, 20L,
-                TipoPerfil.ALUNO, "SenhaForte123");
+                TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(comPlanoInativo, secretaria))
+        assertThatThrownBy(() -> servico().criar(comPlanoInativo, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("fora de linha");
     }
@@ -295,9 +371,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar soComContentType = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20),
-                null, "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123");
+                null, "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(soComContentType, secretaria))
+        assertThatThrownBy(() -> servico().criar(soComContentType, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("juntos");
     }
@@ -309,9 +385,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar fotoInvalida = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20),
-                "isto-nao-e-base64!!!", "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123");
+                "isto-nao-e-base64!!!", "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(fotoInvalida, secretaria))
+        assertThatThrownBy(() -> servico().criar(fotoInvalida, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("invalido");
     }
@@ -324,9 +400,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar fotoGrande = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20),
-                base64Grande, "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123");
+                base64Grande, "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        assertThatThrownBy(() -> servico().criar(fotoGrande, secretaria))
+        assertThatThrownBy(() -> servico().criar(fotoGrande, secretaria, null))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("3 MB");
     }
@@ -340,9 +416,9 @@ class UsuarioServiceTest {
         UsuarioRequests.Criar comFoto = new UsuarioRequests.Criar(
                 "Maria Silva", "123.456.789-01", "maria@email.com", "(11) 99999-9999",
                 "Rua das Flores, 123", "01234-567", LocalDate.of(1990, 5, 20),
-                base64Valido, "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123");
+                base64Valido, "image/png", PLANO_ID, TipoPerfil.ALUNO, "SenhaForte123", "Maria Silva", true);
 
-        servico().criar(comFoto, secretaria);
+        servico().criar(comFoto, secretaria, null);
 
         ArgumentCaptor<Usuario> captor = ArgumentCaptor.forClass(Usuario.class);
         verify(repository).save(captor.capture());

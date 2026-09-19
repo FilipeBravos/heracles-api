@@ -2,16 +2,19 @@ package br.com.heracles.heracles_api.core.service;
 
 import br.com.heracles.heracles_api.core.domain.Anamnese;
 import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
+import br.com.heracles.heracles_api.core.domain.ContratoAssinado;
 import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
+import br.com.heracles.heracles_api.core.dto.ContratoDtos;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
 import br.com.heracles.heracles_api.core.repository.AnamneseRepository;
 import br.com.heracles.heracles_api.core.repository.AvaliacaoFisicaRepository;
+import br.com.heracles.heracles_api.core.repository.ContratoAssinadoRepository;
 import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
@@ -46,11 +49,29 @@ public class UsuarioService {
     /** 3 MB decodificados. Foto de perfil, nao arquivo — nao precisa de mais que isso. */
     private static final int TAMANHO_MAXIMO_FOTO_BYTES = 3 * 1024 * 1024;
 
+    /**
+     * Texto vigente do contrato de adesao. Fixo por enquanto — nao ha tela
+     * de edicao de modelo de contrato nesta entrega, so a assinatura dele.
+     * Uma edicao aqui nao altera contratos ja assinados: cada um grava sua
+     * propria copia em ContratoAssinado.textoContrato no momento da assinatura.
+     */
+    public static final String TEXTO_CONTRATO_PADRAO = """
+            CONTRATO DE ADESAO - HERACLES ACADEMIA
+
+            Ao assinar este contrato, o(a) aluno(a) concorda com as \
+            condicoes gerais de uso das instalacoes e servicos da unidade, \
+            incluindo o pagamento pontual da mensalidade do plano escolhido, \
+            o uso adequado dos equipamentos e o respeito as normas internas \
+            de convivencia e seguranca. A academia se compromete a manter \
+            as instalacoes em condicoes adequadas de uso e a prestar os \
+            servicos contratados com qualidade.""";
+
     private final UsuarioRepository repository;
     private final TreinoRepository treinoRepository;
     private final HistoricoTreinoAlunoRepository historicoTreinoRepository;
     private final AnamneseRepository anamneseRepository;
     private final AvaliacaoFisicaRepository avaliacaoFisicaRepository;
+    private final ContratoAssinadoRepository contratoAssinadoRepository;
     private final PlanoRepository planoRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -59,6 +80,7 @@ public class UsuarioService {
                           HistoricoTreinoAlunoRepository historicoTreinoRepository,
                           AnamneseRepository anamneseRepository,
                           AvaliacaoFisicaRepository avaliacaoFisicaRepository,
+                          ContratoAssinadoRepository contratoAssinadoRepository,
                           PlanoRepository planoRepository,
                           PasswordEncoder passwordEncoder) {
         this.repository = repository;
@@ -66,6 +88,7 @@ public class UsuarioService {
         this.historicoTreinoRepository = historicoTreinoRepository;
         this.anamneseRepository = anamneseRepository;
         this.avaliacaoFisicaRepository = avaliacaoFisicaRepository;
+        this.contratoAssinadoRepository = contratoAssinadoRepository;
         this.planoRepository = planoRepository;
         this.passwordEncoder = passwordEncoder;
     }
@@ -83,7 +106,7 @@ public class UsuarioService {
     }
 
     @Transactional
-    public UsuarioResponse criar(UsuarioRequests.Criar request, String emailDeQuemCria) {
+    public UsuarioResponse criar(UsuarioRequests.Criar request, String emailDeQuemCria, String ipOrigem) {
         Usuario autor = repository.findByEmailIgnoreCase(emailDeQuemCria)
                 .orElseThrow(() -> new RecursoNaoEncontradoException(
                         "Usuario autenticado nao encontrado."));
@@ -91,6 +114,7 @@ public class UsuarioService {
         garantirQuePodeCriar(autor.getTipoPerfil(), request.tipoPerfil());
         garantirDadosDeAlunoCompletos(request.tipoPerfil(), request.endereco(), request.cep(),
                 request.dataNascimento(), request.planoEscolhidoId());
+        garantirContratoAssinado(request.tipoPerfil(), request.nomeAssinaturaContrato(), request.aceiteContrato());
 
         String cpf = normalizarCpf(request.cpf());
 
@@ -117,7 +141,30 @@ public class UsuarioService {
         aplicarPlanoEscolhido(usuario, request.planoEscolhidoId());
 
         Usuario salvo = repository.save(usuario);
+
+        if (salvo.getTipoPerfil() == TipoPerfil.ALUNO) {
+            assinarContrato(salvo, request.nomeAssinaturaContrato(), ipOrigem);
+        }
+
         return UsuarioResponse.semTreinos(salvo, false);
+    }
+
+    private void assinarContrato(Usuario aluno, String nomeDigitado, String ipOrigem) {
+        ContratoAssinado contrato = new ContratoAssinado();
+        contrato.setAluno(aluno);
+        contrato.setNomeDigitado(nomeDigitado.trim());
+        contrato.setTextoContrato(TEXTO_CONTRATO_PADRAO);
+        contrato.setIpOrigem(ipOrigem);
+        contratoAssinadoRepository.save(contrato);
+    }
+
+    /** O contrato assinado no cadastro, ou o estado "ausente" — cadastros anteriores a esta funcionalidade nao tem um. */
+    @Transactional(readOnly = true)
+    public ContratoDtos.Response buscarContrato(Long alunoId) {
+        garantirQueExiste(alunoId);
+        return contratoAssinadoRepository.findByAlunoId(alunoId)
+                .map(ContratoDtos.Response::de)
+                .orElseGet(ContratoDtos.Response::ausente);
     }
 
     @Transactional
@@ -362,7 +409,7 @@ public class UsuarioService {
      * o aluno — professor, secretaria e admin sao conta de acesso, nao tem
      * "plano escolhido" nem precisam de endereco cadastrado. Por isso a
      * obrigatoriedade e regra aqui, condicionada ao perfil, e nao anotacao
-     * estatica no DTO: o mesmo contrato serve os quatro perfis.
+     * estatica no DTO: o mesmo contrato de entrada serve os quatro perfis.
      */
     private void garantirDadosDeAlunoCompletos(TipoPerfil perfil, String endereco, String cep,
                                                 LocalDate dataNascimento, Long planoEscolhidoId) {
@@ -380,6 +427,24 @@ public class UsuarioService {
         }
         if (planoEscolhidoId == null) {
             throw new RegraNegocioException("Escolha o plano do aluno para concluir o cadastro.");
+        }
+    }
+
+    /**
+     * A assinatura do contrato so se exige na criacao — atualizar dados
+     * cadastrais nao reabre o contrato ja assinado. Substitui "so senha
+     * inicial" como o momento de aceite: sem nome digitado e aceite
+     * marcado, a API recusa o cadastro do aluno.
+     */
+    private void garantirContratoAssinado(TipoPerfil perfil, String nomeAssinaturaContrato, Boolean aceiteContrato) {
+        if (perfil != TipoPerfil.ALUNO) {
+            return;
+        }
+        if (isBlank(nomeAssinaturaContrato)) {
+            throw new RegraNegocioException("Assine o contrato com o nome completo para concluir o cadastro.");
+        }
+        if (aceiteContrato == null || !aceiteContrato) {
+            throw new RegraNegocioException("E preciso aceitar os termos do contrato para concluir o cadastro.");
         }
     }
 

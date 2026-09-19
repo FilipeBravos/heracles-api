@@ -96,7 +96,7 @@ class UsuarioControllerTest {
     @DisplayName("A resposta de usuario nunca carrega a senha")
     void respostaNaoExpoeSenha() throws Exception {
         // Antes: a entidade era serializada direta e o hash saia em toda listagem.
-        given(service.criar(any(), any())).willReturn(alunoSalvo());
+        given(service.criar(any(), any(), any())).willReturn(alunoSalvo());
 
         mockMvc.perform(post("/api/usuarios")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -154,7 +154,7 @@ class UsuarioControllerTest {
     @Test
     @DisplayName("CPF duplicado devolve 409, nao 500 vindo do banco")
     void cpfDuplicadoDevolve409() throws Exception {
-        given(service.criar(any(), any()))
+        given(service.criar(any(), any(), any()))
                 .willThrow(new RegraNegocioException("Ja existe um cadastro com o CPF informado."));
 
         mockMvc.perform(post("/api/usuarios")

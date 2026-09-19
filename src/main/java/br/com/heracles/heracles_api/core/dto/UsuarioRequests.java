@@ -68,7 +68,17 @@ public final class UsuarioRequests {
 
             @NotBlank(message = "A senha e obrigatoria")
             @Size(min = 8, message = "A senha deve ter no minimo 8 caracteres")
-            String senha
+            String senha,
+
+            /**
+             * O "clique para assinar" do contrato de adesao: nome digitado
+             * mais aceite. Obrigatorio so para aluno — regra de negocio em
+             * UsuarioService.criar, mesmo motivo de endereco/cep/plano.
+             */
+            @Size(max = 100, message = "O nome no contrato deve ter no maximo 100 caracteres")
+            String nomeAssinaturaContrato,
+
+            Boolean aceiteContrato
     ) {
     }
 
