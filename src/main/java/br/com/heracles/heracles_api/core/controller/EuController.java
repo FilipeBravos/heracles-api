@@ -3,13 +3,20 @@ package br.com.heracles.heracles_api.core.controller;
 import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MeusDadosDtos;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
+import br.com.heracles.heracles_api.core.dto.NotificacaoDtos;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.service.MinhaAreaService;
+import br.com.heracles.heracles_api.core.service.NotificacaoService;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,9 +36,11 @@ import java.util.List;
 public class EuController {
 
     private final MinhaAreaService service;
+    private final NotificacaoService notificacaoService;
 
-    public EuController(MinhaAreaService service) {
+    public EuController(MinhaAreaService service, NotificacaoService notificacaoService) {
         this.service = service;
+        this.notificacaoService = notificacaoService;
     }
 
     /** As fichas vinculadas a quem esta autenticado. */
@@ -82,6 +91,32 @@ public class EuController {
     public ResponseEntity<Void> trocarSenha(@AuthenticationPrincipal Jwt jwt,
                                              @RequestBody @Valid MeusDadosDtos.TrocarSenha request) {
         service.trocarSenha(jwt.getSubject(), request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** A central de notificacoes de quem esta autenticado — sem e-mail nem push, so o sino do app. */
+    @GetMapping("/notificacoes")
+    public Page<NotificacaoDtos.Response> minhasNotificacoes(
+            @AuthenticationPrincipal Jwt jwt,
+            @PageableDefault(size = 20, sort = "criadaEm", direction = Sort.Direction.DESC) Pageable pageable) {
+        return notificacaoService.listar(jwt.getSubject(), pageable);
+    }
+
+    /** Contagem de nao lidas — o numero que o sino mostra sem abrir a lista. */
+    @GetMapping("/notificacoes/resumo")
+    public NotificacaoDtos.Resumo resumoNotificacoes(@AuthenticationPrincipal Jwt jwt) {
+        return notificacaoService.resumo(jwt.getSubject());
+    }
+
+    @PutMapping("/notificacoes/{id}/lida")
+    public ResponseEntity<Void> marcarNotificacaoComoLida(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        notificacaoService.marcarComoLida(jwt.getSubject(), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/notificacoes/lidas")
+    public ResponseEntity<Void> marcarTodasNotificacoesComoLidas(@AuthenticationPrincipal Jwt jwt) {
+        notificacaoService.marcarTodasComoLidas(jwt.getSubject());
         return ResponseEntity.noContent().build();
     }
 }
