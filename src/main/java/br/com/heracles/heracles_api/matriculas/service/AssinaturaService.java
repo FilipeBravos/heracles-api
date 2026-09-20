@@ -19,6 +19,7 @@ import br.com.heracles.heracles_api.matriculas.domain.StatusCobranca;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
@@ -129,6 +130,72 @@ public class AssinaturaService {
         }
 
         return new AssinaturaDtos.HistoricoMensal(meses, total, pontos);
+    }
+
+    /**
+     * O painel de retencao: taxa de churn mes a mes, e o detalhamento por
+     * plano e por unidade do ultimo mes fechado.
+     *
+     * O mes corrente fica de fora do detalhamento por estar incompleto —
+     * so a tendencia mensal o inclui, como o grafico de matriculas ja
+     * faz, porque ali a barra "em andamento" e uma convencao conhecida.
+     */
+    @Transactional(readOnly = true)
+    public AssinaturaDtos.Retencao retencao(int meses) {
+        YearMonth mesAtual = YearMonth.from(LocalDate.now());
+        YearMonth primeiro = mesAtual.minusMonths(meses - 1L);
+
+        Map<YearMonth, Long> canceladosPorMes = repository.contarCancelamentosPorMesDesde(primeiro.atDay(1))
+                .stream()
+                .collect(Collectors.toMap(c -> YearMonth.of(c.ano(), c.mes()), ContagemMensal::quantidade));
+
+        List<AssinaturaDtos.PontoChurn> pontos = new ArrayList<>(meses);
+        for (int i = 0; i < meses; i++) {
+            YearMonth mes = primeiro.plusMonths(i);
+            long ativosNoInicio = repository.contarAtivasEm(mes.atDay(1));
+            long cancelados = canceladosPorMes.getOrDefault(mes, 0L);
+            pontos.add(new AssinaturaDtos.PontoChurn(mes.toString(), ativosNoInicio, cancelados, taxa(cancelados, ativosNoInicio)));
+        }
+
+        YearMonth mesFechado = mesAtual.minusMonths(1);
+        LocalDate inicioMesFechado = mesFechado.atDay(1);
+        LocalDate inicioMesAtual = mesAtual.atDay(1);
+
+        return new AssinaturaDtos.Retencao(
+                new AssinaturaDtos.HistoricoChurn(meses, pontos),
+                mesFechado.toString(),
+                linhasDeChurn(
+                        repository.contarAtivasPorPlanoEm(inicioMesFechado),
+                        repository.contarCancelamentosPorPlano(inicioMesFechado, inicioMesAtual)),
+                linhasDeChurn(
+                        repository.contarAtivasPorUnidadeEm(inicioMesFechado),
+                        repository.contarCancelamentosPorUnidade(inicioMesFechado, inicioMesAtual)));
+    }
+
+    /**
+     * Junta as duas contagens (ativos e cancelados) por id de grupo numa
+     * linha so, ordenada da maior taxa de churn para a menor — e a maior
+     * taxa que a gestao precisa ver primeiro.
+     */
+    private List<AssinaturaDtos.LinhaChurn> linhasDeChurn(List<ContagemAgrupada> ativos,
+                                                           List<ContagemAgrupada> cancelados) {
+        Map<Long, Long> canceladosPorId = cancelados.stream()
+                .collect(Collectors.toMap(ContagemAgrupada::id, ContagemAgrupada::quantidade));
+
+        return ativos.stream()
+                .map(grupo -> {
+                    long qtdCancelados = canceladosPorId.getOrDefault(grupo.id(), 0L);
+                    return new AssinaturaDtos.LinhaChurn(
+                            grupo.id(), grupo.nome(), grupo.quantidade(), qtdCancelados,
+                            taxa(qtdCancelados, grupo.quantidade()));
+                })
+                .sorted((a, b) -> Double.compare(b.taxaChurn(), a.taxaChurn()))
+                .toList();
+    }
+
+    /** 0 quando a base e zero — sem isso, todo chamador teria que tratar a divisao por zero. */
+    private double taxa(long parte, long base) {
+        return base == 0 ? 0d : (double) parte / base;
     }
 
     /**

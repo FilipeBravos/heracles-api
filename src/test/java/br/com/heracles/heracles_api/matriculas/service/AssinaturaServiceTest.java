@@ -8,6 +8,7 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.*;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
@@ -536,6 +537,142 @@ class AssinaturaServiceTest {
         // matriculas do inicio daquele mes, e a primeira barra sairia baixa.
         assertThat(desde.getValue())
                 .isEqualTo(YearMonth.from(LocalDate.now()).minusMonths(11).atDay(1));
+    }
+
+    // ---------------------------------------------------------------
+    // Painel de retencao
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("A taxa de churn de cada mes vem calculada: cancelados sobre ativos no inicio")
+    void taxaDeChurnCalculada() {
+        YearMonth mesAtual = YearMonth.from(LocalDate.now());
+        given(repository.contarCancelamentosPorMesDesde(any())).willReturn(List.of(
+                new ContagemMensal(mesAtual.getYear(), mesAtual.getMonthValue(), 5L)));
+        given(repository.contarAtivasEm(mesAtual.atDay(1))).willReturn(100L);
+        given(repository.contarAtivasPorPlanoEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorPlano(any(), any())).willReturn(List.of());
+        given(repository.contarAtivasPorUnidadeEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorUnidade(any(), any())).willReturn(List.of());
+
+        AssinaturaDtos.Retencao retencao = service.retencao(6);
+
+        AssinaturaDtos.PontoChurn ultimoPonto = retencao.historico().pontos().get(5);
+        assertThat(ultimoPonto.ativosNoInicio()).isEqualTo(100L);
+        assertThat(ultimoPonto.cancelados()).isEqualTo(5L);
+        assertThat(ultimoPonto.taxaChurn()).isEqualTo(0.05);
+    }
+
+    @Test
+    @DisplayName("Mes sem nenhuma assinatura ativa no inicio nao divide por zero")
+    void mesSemBaseNaoDivide() {
+        given(repository.contarCancelamentosPorMesDesde(any())).willReturn(List.of());
+        given(repository.contarAtivasEm(any())).willReturn(0L);
+        given(repository.contarAtivasPorPlanoEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorPlano(any(), any())).willReturn(List.of());
+        given(repository.contarAtivasPorUnidadeEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorUnidade(any(), any())).willReturn(List.of());
+
+        AssinaturaDtos.Retencao retencao = service.retencao(3);
+
+        assertThat(retencao.historico().pontos()).allSatisfy(ponto -> assertThat(ponto.taxaChurn()).isZero());
+    }
+
+    @Test
+    @DisplayName("O mes de referencia do detalhamento e o ultimo mes fechado, nao o corrente")
+    void mesDeReferenciaEOAnterior() {
+        given(repository.contarCancelamentosPorMesDesde(any())).willReturn(List.of());
+        given(repository.contarAtivasEm(any())).willReturn(0L);
+        given(repository.contarAtivasPorPlanoEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorPlano(any(), any())).willReturn(List.of());
+        given(repository.contarAtivasPorUnidadeEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorUnidade(any(), any())).willReturn(List.of());
+
+        AssinaturaDtos.Retencao retencao = service.retencao(3);
+
+        assertThat(retencao.mesReferencia())
+                .isEqualTo(YearMonth.from(LocalDate.now()).minusMonths(1).toString());
+    }
+
+    @Test
+    @DisplayName("O detalhamento por plano junta ativos e cancelados por id, e ordena pela maior taxa primeiro")
+    void detalhamentoPorPlanoOrdenaPorTaxa() {
+        given(repository.contarCancelamentosPorMesDesde(any())).willReturn(List.of());
+        given(repository.contarAtivasEm(any())).willReturn(0L);
+        given(repository.contarAtivasPorPlanoEm(any())).willReturn(List.of(
+                new ContagemAgrupada(1L, "Mensal Centro", 50L),
+                new ContagemAgrupada(2L, "Rede Anual", 20L)));
+        given(repository.contarCancelamentosPorPlano(any(), any())).willReturn(List.of(
+                new ContagemAgrupada(1L, "Mensal Centro", 2L),
+                new ContagemAgrupada(2L, "Rede Anual", 4L)));
+        given(repository.contarAtivasPorUnidadeEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorUnidade(any(), any())).willReturn(List.of());
+
+        AssinaturaDtos.Retencao retencao = service.retencao(3);
+
+        // Rede Anual: 4/20 = 20% de churn; Mensal Centro: 2/50 = 4%. A
+        // maior taxa e quem a gestao precisa ver primeiro.
+        assertThat(retencao.porPlano()).extracting(AssinaturaDtos.LinhaChurn::nome)
+                .containsExactly("Rede Anual", "Mensal Centro");
+        assertThat(retencao.porPlano().get(0).taxaChurn()).isEqualTo(0.2);
+        assertThat(retencao.porPlano().get(1).taxaChurn()).isEqualTo(0.04);
+    }
+
+    @Test
+    @DisplayName("Um plano sem cancelamento no mes fechado entra com zero, nao fica de fora")
+    void planoSemCancelamentoEntraComZero() {
+        given(repository.contarCancelamentosPorMesDesde(any())).willReturn(List.of());
+        given(repository.contarAtivasEm(any())).willReturn(0L);
+        given(repository.contarAtivasPorPlanoEm(any())).willReturn(List.of(
+                new ContagemAgrupada(1L, "Mensal Centro", 50L)));
+        given(repository.contarCancelamentosPorPlano(any(), any())).willReturn(List.of());
+        given(repository.contarAtivasPorUnidadeEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorUnidade(any(), any())).willReturn(List.of());
+
+        AssinaturaDtos.Retencao retencao = service.retencao(3);
+
+        assertThat(retencao.porPlano()).hasSize(1);
+        assertThat(retencao.porPlano().get(0).cancelados()).isZero();
+        assertThat(retencao.porPlano().get(0).taxaChurn()).isZero();
+    }
+
+    @Test
+    @DisplayName("O detalhamento por unidade usa a mesma base espalhada pelo plano.unidades")
+    void detalhamentoPorUnidade() {
+        given(repository.contarCancelamentosPorMesDesde(any())).willReturn(List.of());
+        given(repository.contarAtivasEm(any())).willReturn(0L);
+        given(repository.contarAtivasPorPlanoEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorPlano(any(), any())).willReturn(List.of());
+        given(repository.contarAtivasPorUnidadeEm(any())).willReturn(List.of(
+                new ContagemAgrupada(1L, "Unidade Centro", 80L)));
+        given(repository.contarCancelamentosPorUnidade(any(), any())).willReturn(List.of(
+                new ContagemAgrupada(1L, "Unidade Centro", 8L)));
+
+        AssinaturaDtos.Retencao retencao = service.retencao(3);
+
+        assertThat(retencao.porUnidade()).hasSize(1);
+        assertThat(retencao.porUnidade().get(0).nome()).isEqualTo("Unidade Centro");
+        assertThat(retencao.porUnidade().get(0).taxaChurn()).isEqualTo(0.1);
+    }
+
+    @Test
+    @DisplayName("O intervalo de cancelamentos do detalhamento e o mes fechado inteiro, semiaberto")
+    void intervaloDoMesFechado() {
+        given(repository.contarCancelamentosPorMesDesde(any())).willReturn(List.of());
+        given(repository.contarAtivasEm(any())).willReturn(0L);
+        given(repository.contarAtivasPorPlanoEm(any())).willReturn(List.of());
+        given(repository.contarAtivasPorUnidadeEm(any())).willReturn(List.of());
+        given(repository.contarCancelamentosPorUnidade(any(), any())).willReturn(List.of());
+
+        ArgumentCaptor<LocalDate> inicio = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> fim = ArgumentCaptor.forClass(LocalDate.class);
+        given(repository.contarCancelamentosPorPlano(inicio.capture(), fim.capture())).willReturn(List.of());
+
+        service.retencao(3);
+
+        YearMonth mesAtual = YearMonth.from(LocalDate.now());
+        assertThat(inicio.getValue()).isEqualTo(mesAtual.minusMonths(1).atDay(1));
+        assertThat(fim.getValue()).isEqualTo(mesAtual.atDay(1));
     }
 
     // ---------------------------------------------------------------

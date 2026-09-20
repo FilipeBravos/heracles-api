@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.matriculas.repository;
 
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
+import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -139,4 +140,77 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
      */
     @Query("select a from Assinatura a where a.status = 'ATIVA' and a.dataVencimento < :limite")
     List<Assinatura> buscarAtivasVencidasAntesDe(LocalDate limite);
+
+    /**
+     * Quantas assinaturas foram canceladas em cada mes, desde a data
+     * informada — mesmo formato de contarPorMesDesde, so que por
+     * data_cancelamento em vez de data_inicio.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.ContagemMensal(
+                       year(a.dataCancelamento), month(a.dataCancelamento), count(a))
+            from Assinatura a
+            where a.dataCancelamento >= :desde
+            group by year(a.dataCancelamento), month(a.dataCancelamento)
+            order by year(a.dataCancelamento), month(a.dataCancelamento)
+            """)
+    List<ContagemMensal> contarCancelamentosPorMesDesde(LocalDate desde);
+
+    /**
+     * Quantas assinaturas ja existiam, e ainda nao tinham sido canceladas,
+     * antes do dia informado — a base contra a qual o churn de um mes se
+     * mede. Uma cancelada exatamente no dia ainda entra: ela estava de pe
+     * quando o mes comecou.
+     */
+    @Query("""
+            select count(a) from Assinatura a
+            where a.dataInicio < :inicioDoMes
+            and (a.dataCancelamento is null or a.dataCancelamento >= :inicioDoMes)
+            """)
+    long contarAtivasEm(LocalDate inicioDoMes);
+
+    /** Mesma base de contarAtivasEm, agrupada por plano — para o detalhamento por plano do painel de retencao. */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada(p.id, p.nome, count(a))
+            from Assinatura a join a.plano p
+            where a.dataInicio < :inicioDoMes
+            and (a.dataCancelamento is null or a.dataCancelamento >= :inicioDoMes)
+            group by p.id, p.nome
+            """)
+    List<ContagemAgrupada> contarAtivasPorPlanoEm(LocalDate inicioDoMes);
+
+    /** Cancelamentos de um mes fechado (intervalo semiaberto), agrupados por plano. */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada(p.id, p.nome, count(a))
+            from Assinatura a join a.plano p
+            where a.dataCancelamento >= :inicio and a.dataCancelamento < :fimExclusivo
+            group by p.id, p.nome
+            """)
+    List<ContagemAgrupada> contarCancelamentosPorPlano(LocalDate inicio, LocalDate fimExclusivo);
+
+    /**
+     * Mesma base de contarAtivasEm, agrupada por unidade.
+     *
+     * O join com plano.unidades espalha cada assinatura por todas as
+     * unidades que o plano dela cobre: um plano de rede que perde um
+     * aluno conta como perda em cada unidade que cobria, nao numa so —
+     * a assinatura nunca pertenceu a uma unidade so.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada(u.id, u.nome, count(a))
+            from Assinatura a join a.plano.unidades u
+            where a.dataInicio < :inicioDoMes
+            and (a.dataCancelamento is null or a.dataCancelamento >= :inicioDoMes)
+            group by u.id, u.nome
+            """)
+    List<ContagemAgrupada> contarAtivasPorUnidadeEm(LocalDate inicioDoMes);
+
+    /** Cancelamentos de um mes fechado, agrupados por unidade — mesmo espalhamento de contarAtivasPorUnidadeEm. */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada(u.id, u.nome, count(a))
+            from Assinatura a join a.plano.unidades u
+            where a.dataCancelamento >= :inicio and a.dataCancelamento < :fimExclusivo
+            group by u.id, u.nome
+            """)
+    List<ContagemAgrupada> contarCancelamentosPorUnidade(LocalDate inicio, LocalDate fimExclusivo);
 }
