@@ -37,6 +37,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -179,6 +181,28 @@ public class AssinaturaService {
                 linhasDeChurn(
                         repository.contarAtivasPorUnidadeEm(inicioMesFechado),
                         repository.contarCancelamentosPorUnidade(inicioMesFechado, inicioMesAtual)));
+    }
+
+    /**
+     * O painel financeiro: o dinheiro, onde o painel de retencao mede
+     * alunos.
+     */
+    @Transactional(readOnly = true)
+    public AssinaturaDtos.PainelFinanceiro financeiro() {
+        YearMonth mesAtual = YearMonth.from(LocalDate.now());
+
+        BigDecimal mrr = repository.somarMrr();
+        long assinaturasAtivas = repository.countByStatus(StatusAssinatura.ATIVA);
+        BigDecimal ticketMedio = assinaturasAtivas > 0
+                ? mrr.divide(BigDecimal.valueOf(assinaturasAtivas), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        BigDecimal inadimplenciaEmReais = cobrancaRepository.somarInadimplenciaEmAberto(LocalDate.now());
+        BigDecimal projecaoDoMes = cobrancaRepository
+                .somarCobrancasNoPeriodo(mesAtual.atDay(1), mesAtual.atEndOfMonth());
+
+        return new AssinaturaDtos.PainelFinanceiro(
+                mesAtual.toString(), mrr, assinaturasAtivas, ticketMedio, inadimplenciaEmReais, projecaoDoMes);
     }
 
     /**

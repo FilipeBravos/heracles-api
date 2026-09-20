@@ -242,6 +242,31 @@ public final class AssinaturaDtos {
     }
 
     /**
+     * O painel financeiro: o dinheiro, onde o painel de retencao mede
+     * alunos.
+     *
+     * `mrr` conta so quem esta ATIVA — e a receita recorrente saudavel.
+     * Pacote anual entra normalizado, porque `Plano.valorMensal` ja e o
+     * valor por mes por definicao, RECORRENTE ou PACOTE_ANUAL; nao ha
+     * conversao a fazer aqui. `inadimplenciaEmReais` e o dinheiro parado
+     * (vencido ou inadimplente) — de proposito fora do mrr, para as duas
+     * perguntas nao se misturarem num numero so. `projecaoDoMes` e a soma
+     * das cobrancas (pagas e pendentes) com vencimento dentro do mes
+     * corrente — uma previsao de caixa a partir de cobrancas reais, nao
+     * uma extrapolacao do mrr.
+     */
+    public record PainelFinanceiro(
+            /** `yyyy-MM` do mes corrente — mesmo formato de PontoMensal.mes. */
+            String mesReferencia,
+            BigDecimal mrr,
+            long assinaturasAtivas,
+            BigDecimal ticketMedio,
+            BigDecimal inadimplenciaEmReais,
+            BigDecimal projecaoDoMes
+    ) {
+    }
+
+    /**
      * Uma linha do relatorio de inadimplencia.
      *
      * `diasParaVencer` usa a mesma convencao de `Vencimento` (negativo

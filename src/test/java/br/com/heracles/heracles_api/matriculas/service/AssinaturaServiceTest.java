@@ -499,6 +499,41 @@ class AssinaturaServiceTest {
     }
 
     // ---------------------------------------------------------------
+    // Painel financeiro
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Ticket medio e o MRR dividido pelas assinaturas ativas")
+    void financeiroCalculaTicketMedio() {
+        given(repository.somarMrr()).willReturn(new BigDecimal("1000.00"));
+        given(repository.countByStatus(StatusAssinatura.ATIVA)).willReturn(4L);
+        given(cobrancaRepository.somarInadimplenciaEmAberto(any())).willReturn(new BigDecimal("150.00"));
+        given(cobrancaRepository.somarCobrancasNoPeriodo(any(), any())).willReturn(new BigDecimal("980.00"));
+
+        AssinaturaDtos.PainelFinanceiro painel = service.financeiro();
+
+        assertThat(painel.mrr()).isEqualByComparingTo("1000.00");
+        assertThat(painel.assinaturasAtivas()).isEqualTo(4L);
+        assertThat(painel.ticketMedio()).isEqualByComparingTo("250.00");
+        assertThat(painel.inadimplenciaEmReais()).isEqualByComparingTo("150.00");
+        assertThat(painel.projecaoDoMes()).isEqualByComparingTo("980.00");
+        assertThat(painel.mesReferencia()).isEqualTo(YearMonth.now().toString());
+    }
+
+    @Test
+    @DisplayName("Sem assinatura ativa, o ticket medio e zero em vez de dividir por zero")
+    void financeiroSemAtivasTicketMedioZero() {
+        given(repository.somarMrr()).willReturn(BigDecimal.ZERO);
+        given(repository.countByStatus(StatusAssinatura.ATIVA)).willReturn(0L);
+        given(cobrancaRepository.somarInadimplenciaEmAberto(any())).willReturn(BigDecimal.ZERO);
+        given(cobrancaRepository.somarCobrancasNoPeriodo(any(), any())).willReturn(BigDecimal.ZERO);
+
+        AssinaturaDtos.PainelFinanceiro painel = service.financeiro();
+
+        assertThat(painel.ticketMedio()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    // ---------------------------------------------------------------
     // Fila de vencimentos
     // ---------------------------------------------------------------
 
