@@ -1,6 +1,8 @@
 package br.com.heracles.heracles_api.core.service;
 
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisicaFoto;
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MeusDadosDtos;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
@@ -39,17 +41,20 @@ public class MinhaAreaService {
     private final AssinaturaRepository assinaturaRepository;
     private final HistoricoTreinoAlunoRepository historicoTreinoRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UsuarioService usuarioService;
 
     public MinhaAreaService(UsuarioRepository usuarioRepository,
                             TreinoRepository treinoRepository,
                             AssinaturaRepository assinaturaRepository,
                             HistoricoTreinoAlunoRepository historicoTreinoRepository,
-                            PasswordEncoder passwordEncoder) {
+                            PasswordEncoder passwordEncoder,
+                            UsuarioService usuarioService) {
         this.usuarioRepository = usuarioRepository;
         this.treinoRepository = treinoRepository;
         this.assinaturaRepository = assinaturaRepository;
         this.historicoTreinoRepository = historicoTreinoRepository;
         this.passwordEncoder = passwordEncoder;
+        this.usuarioService = usuarioService;
     }
 
     @Transactional(readOnly = true)
@@ -128,6 +133,28 @@ public class MinhaAreaService {
             throw new RegraNegocioException("Senha atual incorreta.");
         }
         eu.setSenhaHash(passwordEncoder.encode(request.novaSenha()));
+    }
+
+    /**
+     * O historico de avaliacoes fisicas de quem esta autenticado.
+     *
+     * Delega para UsuarioService em vez de repetir a consulta: a regra ja
+     * existe la para o balcao, e aqui so muda de onde vem o id do aluno —
+     * do token, nunca de um parametro que desse pra trocar.
+     */
+    @Transactional(readOnly = true)
+    public List<AvaliacaoFisicaDtos.Response> minhasAvaliacoesFisicas(String emailAutenticado) {
+        return usuarioService.historicoAvaliacoesFisicas(eu(emailAutenticado).getId());
+    }
+
+    @Transactional(readOnly = true)
+    public AvaliacaoFisicaDtos.Comparativo meuComparativoFisico(String emailAutenticado, Long deId, Long paraId) {
+        return usuarioService.compararAvaliacoesFisicas(eu(emailAutenticado).getId(), deId, paraId);
+    }
+
+    @Transactional(readOnly = true)
+    public AvaliacaoFisicaFoto minhaFotoAvaliacaoFisica(String emailAutenticado, Long avaliacaoId, Long fotoId) {
+        return usuarioService.buscarFotoAvaliacaoFisica(eu(emailAutenticado).getId(), avaliacaoId, fotoId);
     }
 
     private Usuario eu(String emailAutenticado) {

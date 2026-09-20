@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.core.service;
 
 import br.com.heracles.heracles_api.core.domain.Anamnese;
 import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisicaFoto;
 import br.com.heracles.heracles_api.core.domain.ContratoAssinado;
 import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Treino;
@@ -33,6 +34,7 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -344,22 +346,72 @@ public class UsuarioService {
         avaliacao.setCircunferenciaQuadril(request.circunferenciaQuadril());
         avaliacao.setCircunferenciaBraco(request.circunferenciaBraco());
         avaliacao.setCircunferenciaCoxa(request.circunferenciaCoxa());
+        avaliacao.setCircunferenciaPeito(request.circunferenciaPeito());
         avaliacao.setObservacoes(vazioComoNulo(request.observacoes()));
-        aplicarFotoAvaliacao(avaliacao, request.fotoBase64(), request.fotoContentType());
+        if (request.fotos() != null) {
+            for (AvaliacaoFisicaDtos.Foto fotoRequest : request.fotos()) {
+                AvaliacaoFisicaFoto foto = new AvaliacaoFisicaFoto();
+                foto.setFoto(decodificarFoto(fotoRequest.base64()));
+                foto.setFotoContentType(fotoRequest.contentType());
+                avaliacao.adicionarFoto(foto);
+            }
+        }
 
         return AvaliacaoFisicaDtos.Response.de(avaliacaoFisicaRepository.save(avaliacao));
     }
 
     /**
-     * Bytes da foto de evolucao. Confere que a avaliacao e mesmo do aluno
-     * da rota — sem isso, o id da avaliacao bastaria pra ver a foto de
-     * qualquer aluno.
+     * Uma foto da galeria de evolucao. Confere que a avaliacao e mesmo do
+     * aluno da rota — sem isso, o id da avaliacao bastaria pra ver a foto
+     * de qualquer aluno.
      */
     @Transactional(readOnly = true)
-    public AvaliacaoFisica buscarFotoAvaliacaoFisica(Long alunoId, Long avaliacaoId) {
+    public AvaliacaoFisicaFoto buscarFotoAvaliacaoFisica(Long alunoId, Long avaliacaoId, Long fotoId) {
+        AvaliacaoFisica avaliacao = buscarAvaliacaoDoAluno(alunoId, avaliacaoId);
+        return avaliacao.getFotos().stream()
+                .filter(foto -> foto.getId().equals(fotoId))
+                .findFirst()
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Foto", fotoId));
+    }
+
+    /**
+     * O comparativo entre duas avaliacoes do aluno — a primeira e a mais
+     * recente por padrao, ou duas escolhidas via deId/paraId.
+     *
+     * Menos de duas avaliacoes nao e erro: e o estado normal de quem
+     * acabou de comecar a acompanhar a evolucao, e a tela precisa saber
+     * disso para mostrar "ainda sem comparativo" em vez de uma falha.
+     */
+    @Transactional(readOnly = true)
+    public AvaliacaoFisicaDtos.Comparativo compararAvaliacoesFisicas(Long alunoId, Long deId, Long paraId) {
+        garantirQueExiste(alunoId);
+
+        AvaliacaoFisica de;
+        AvaliacaoFisica para;
+        if (deId == null && paraId == null) {
+            Optional<AvaliacaoFisica> primeira = avaliacaoFisicaRepository.findFirstByAlunoIdOrderByDataAsc(alunoId);
+            Optional<AvaliacaoFisica> maisRecente = avaliacaoFisicaRepository.findFirstByAlunoIdOrderByDataDesc(alunoId);
+            if (primeira.isEmpty() || maisRecente.isEmpty()
+                    || primeira.get().getId().equals(maisRecente.get().getId())) {
+                return AvaliacaoFisicaDtos.Comparativo.indisponivel();
+            }
+            de = primeira.get();
+            para = maisRecente.get();
+        } else if (deId != null && paraId != null) {
+            de = buscarAvaliacaoDoAluno(alunoId, deId);
+            para = buscarAvaliacaoDoAluno(alunoId, paraId);
+        } else {
+            throw new RegraNegocioException(
+                    "Informe as duas avaliacoes a comparar, ou nenhuma para usar a primeira e a mais recente.");
+        }
+
+        return AvaliacaoFisicaDtos.Comparativo.de(de, para);
+    }
+
+    private AvaliacaoFisica buscarAvaliacaoDoAluno(Long alunoId, Long avaliacaoId) {
         AvaliacaoFisica avaliacao = avaliacaoFisicaRepository.findById(avaliacaoId)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Avaliacao fisica", avaliacaoId));
-        if (!avaliacao.getAluno().getId().equals(alunoId) || avaliacao.getFoto() == null) {
+        if (!avaliacao.getAluno().getId().equals(alunoId)) {
             throw RecursoNaoEncontradoException.de("Avaliacao fisica", avaliacaoId);
         }
         return avaliacao;
@@ -481,18 +533,6 @@ public class UsuarioService {
         }
         usuario.setFoto(decodificarFoto(fotoBase64));
         usuario.setFotoContentType(fotoContentType);
-    }
-
-    /** Cada avaliacao e uma linha nova, entao nao ha "preservar a foto anterior" — so o par completo ou nada. */
-    private void aplicarFotoAvaliacao(AvaliacaoFisica avaliacao, String fotoBase64, String fotoContentType) {
-        if (fotoBase64 == null && fotoContentType == null) {
-            return;
-        }
-        if (fotoBase64 == null || fotoContentType == null) {
-            throw new RegraNegocioException("Envie a foto e o tipo de conteudo juntos.");
-        }
-        avaliacao.setFoto(decodificarFoto(fotoBase64));
-        avaliacao.setFotoContentType(fotoContentType);
     }
 
     private byte[] decodificarFoto(String fotoBase64) {
