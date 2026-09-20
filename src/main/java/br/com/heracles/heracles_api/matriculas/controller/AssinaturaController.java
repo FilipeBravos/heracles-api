@@ -62,6 +62,12 @@ public class AssinaturaController {
         return service.retencao(meses);
     }
 
+    /** Painel financeiro: MRR, ticket medio, inadimplencia em R$ e a projecao de caixa do mes. */
+    @GetMapping("/financeiro")
+    public AssinaturaDtos.PainelFinanceiro financeiro() {
+        return service.financeiro();
+    }
+
     /**
      * Fila de vencimentos do painel: quem vence nos proximos dias — e quem
      * ja venceu.

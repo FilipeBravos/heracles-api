@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -87,6 +88,17 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
     boolean existsByTokenParceiroAndStatusNot(String tokenParceiro, StatusAssinatura status);
 
     long countByStatus(StatusAssinatura status);
+
+    /**
+     * MRR: soma do valor mensal de quem esta ATIVA agora.
+     *
+     * So ATIVA entra de proposito — e a receita recorrente saudavel, o que
+     * esta realmente em dia. O que esta atrasado aparece a parte, na
+     * inadimplencia em R$, para as duas perguntas nao se misturarem num
+     * numero so.
+     */
+    @Query("select coalesce(sum(a.plano.valorMensal), 0) from Assinatura a where a.status = 'ATIVA'")
+    BigDecimal somarMrr();
 
     /** Quem o lembrete automatico avisa no estagio INADIMPLENTE — o dedup de LembreteEnviado evita repetir. */
     @EntityGraph(attributePaths = {"aluno", "plano"})
