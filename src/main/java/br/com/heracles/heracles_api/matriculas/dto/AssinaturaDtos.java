@@ -255,6 +255,35 @@ public final class AssinaturaDtos {
      * corrente — uma previsao de caixa a partir de cobrancas reais, nao
      * uma extrapolacao do mrr.
      */
+    /** Um ponto do grafico de ocupacao: quantos check-ins liberados nesta hora do dia. */
+    public record PontoOcupacao(
+            int hora,
+            long quantidade
+    ) {
+    }
+
+    /** A serie de 24 horas (0-23) de uma unidade, sem buracos — hora sem check-in sai com quantidade zero. */
+    public record OcupacaoPorUnidade(
+            Long unidadeId,
+            String unidadeNome,
+            List<PontoOcupacao> pontos
+    ) {
+    }
+
+    /**
+     * O painel de ocupacao inteiro: uma serie por unidade, cobrindo os
+     * ultimos `dias` dias.
+     *
+     * Fica de fora quem nunca teve unidade nenhuma cadastrada, mas toda
+     * unidade cadastrada aparece, mesmo com a serie zerada — silencio
+     * tambem e informacao para quem esta decidindo onde reforcar horario.
+     */
+    public record PainelOcupacao(
+            int dias,
+            List<OcupacaoPorUnidade> unidades
+    ) {
+    }
+
     public record PainelFinanceiro(
             /** `yyyy-MM` do mes corrente — mesmo formato de PontoMensal.mes. */
             String mesReferencia,

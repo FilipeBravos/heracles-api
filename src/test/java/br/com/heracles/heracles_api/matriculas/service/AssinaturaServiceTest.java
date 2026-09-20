@@ -12,6 +12,7 @@ import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
@@ -531,6 +532,33 @@ class AssinaturaServiceTest {
         AssinaturaDtos.PainelFinanceiro painel = service.financeiro();
 
         assertThat(painel.ticketMedio()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    // ---------------------------------------------------------------
+    // Ocupacao por hora e por unidade
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Toda unidade cadastrada entra, mesmo sem nenhum check-in no periodo")
+    void ocupacaoIncluiUnidadeSemCheckin() {
+        given(unidadeRepository.findAll()).willReturn(List.of(centro, zonaSul));
+        given(checkinRepository.contarOcupacaoPorUnidadeEHora(any())).willReturn(List.of(
+                new LinhaOcupacao(1L, "Unidade Centro", 19, 5L)));
+
+        AssinaturaDtos.PainelOcupacao painel = service.ocupacao(30);
+
+        assertThat(painel.dias()).isEqualTo(30);
+        assertThat(painel.unidades()).hasSize(2);
+
+        AssinaturaDtos.OcupacaoPorUnidade linhaCentro = painel.unidades().stream()
+                .filter(u -> u.unidadeId().equals(1L)).findFirst().orElseThrow();
+        assertThat(linhaCentro.pontos()).hasSize(24);
+        assertThat(linhaCentro.pontos().get(19).quantidade()).isEqualTo(5L);
+        assertThat(linhaCentro.pontos().get(0).quantidade()).isEqualTo(0L);
+
+        AssinaturaDtos.OcupacaoPorUnidade linhaZonaSul = painel.unidades().stream()
+                .filter(u -> u.unidadeId().equals(2L)).findFirst().orElseThrow();
+        assertThat(linhaZonaSul.pontos()).allMatch(p -> p.quantidade() == 0L);
     }
 
     // ---------------------------------------------------------------
