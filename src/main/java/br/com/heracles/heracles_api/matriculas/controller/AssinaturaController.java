@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -110,6 +111,12 @@ public class AssinaturaController {
         return service.indicacoes();
     }
 
+    /** Quantos cancelamentos por motivo, do mais comum para o menos comum. */
+    @GetMapping("/motivos-cancelamento")
+    public List<LinhaMotivoCancelamento> motivosCancelamento() {
+        return service.motivosCancelamento();
+    }
+
     /** Cabecalho do relatorio de inadimplencia: quantos em cada etapa da regua. */
     @GetMapping("/inadimplencia/resumo")
     public AssinaturaDtos.ResumoInadimplencia resumoInadimplencia(
@@ -146,9 +153,9 @@ public class AssinaturaController {
     }
 
     @DeleteMapping("/{id}")
-    public AssinaturaDtos.Response cancelar(@PathVariable Long id) {
+    public AssinaturaDtos.Response cancelar(@PathVariable Long id, @RequestBody @Valid AssinaturaDtos.Cancelar request) {
         // Cancelar nao apaga: a assinatura vira CANCELADA com data, e o
         // historico do aluno continua completo.
-        return service.cancelar(id);
+        return service.cancelar(id, request);
     }
 }

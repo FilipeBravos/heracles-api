@@ -58,6 +58,14 @@ public class Assinatura {
     @Column(name = "data_cancelamento")
     private LocalDate dataCancelamento;
 
+    /** Por que o aluno saiu — preenchido pela secretaria no ato do cancelamento, nunca depois. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "motivo_cancelamento")
+    private MotivoCancelamento motivoCancelamento;
+
+    @Column(name = "comentario_cancelamento")
+    private String comentarioCancelamento;
+
     /** Como o aluno paga cada ciclo — reaproveitado em toda cobranca gerada para esta assinatura. */
     @Enumerated(EnumType.STRING)
     @Column(name = "forma_pagamento")
@@ -110,12 +118,14 @@ public class Assinatura {
         this.status = StatusAssinatura.INADIMPLENTE;
     }
 
-    public void cancelar(LocalDate hoje) {
+    public void cancelar(LocalDate hoje, MotivoCancelamento motivo, String comentario) {
         if (this.status == StatusAssinatura.CANCELADA) {
             throw new RegraNegocioException("Esta assinatura ja esta cancelada.");
         }
         this.status = StatusAssinatura.CANCELADA;
         this.dataCancelamento = hoje;
+        this.motivoCancelamento = motivo;
+        this.comentarioCancelamento = comentario;
     }
 
     @Override
