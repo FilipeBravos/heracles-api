@@ -1,5 +1,9 @@
 package br.com.heracles.heracles_api.core.controller;
 
+import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
+import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
+import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
+import br.com.heracles.heracles_api.agenda.service.AulaGrupoService;
 import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MeusDadosDtos;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
@@ -15,8 +19,10 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,10 +43,16 @@ public class EuController {
 
     private final MinhaAreaService service;
     private final NotificacaoService notificacaoService;
+    private final AulaGrupoService aulaGrupoService;
+    private final AgendamentoPersonalService agendamentoPersonalService;
 
-    public EuController(MinhaAreaService service, NotificacaoService notificacaoService) {
+    public EuController(MinhaAreaService service, NotificacaoService notificacaoService,
+                        AulaGrupoService aulaGrupoService,
+                        AgendamentoPersonalService agendamentoPersonalService) {
         this.service = service;
         this.notificacaoService = notificacaoService;
+        this.aulaGrupoService = aulaGrupoService;
+        this.agendamentoPersonalService = agendamentoPersonalService;
     }
 
     /** As fichas vinculadas a quem esta autenticado. */
@@ -118,5 +130,37 @@ public class EuController {
     public ResponseEntity<Void> marcarTodasNotificacoesComoLidas(@AuthenticationPrincipal Jwt jwt) {
         notificacaoService.marcarTodasComoLidas(jwt.getSubject());
         return ResponseEntity.noContent().build();
+    }
+
+    /** Agenda de aulas em grupo, com a marca de quais quem esta autenticado ja reservou. */
+    @GetMapping("/aulas")
+    public Page<AulaGrupoDtos.ParaAluno> aulas(
+            @AuthenticationPrincipal Jwt jwt,
+            @PageableDefault(size = 20, sort = "dataHora", direction = Sort.Direction.ASC) Pageable pageable) {
+        return aulaGrupoService.listarParaAluno(jwt.getSubject(), pageable);
+    }
+
+    /** Reserva a propria vaga — o self-service do app, sem passar pelo balcao. */
+    @PostMapping("/aulas/{id}/inscricoes")
+    public ResponseEntity<Void> inscreverEmAula(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        aulaGrupoService.inscreverEu(jwt.getSubject(), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/aulas/{id}/inscricoes")
+    public ResponseEntity<Void> cancelarInscricaoEmAula(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        aulaGrupoService.cancelarInscricaoEu(jwt.getSubject(), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * As sessoes de personal de quem esta autenticado — so leitura. Quem
+     * marca continua sendo a secretaria, no balcao.
+     */
+    @GetMapping("/sessoes-personal")
+    public Page<AgendamentoPersonalDtos.Response> minhasSessoesPersonal(
+            @AuthenticationPrincipal Jwt jwt,
+            @PageableDefault(size = 20, sort = "dataHora", direction = Sort.Direction.ASC) Pageable pageable) {
+        return agendamentoPersonalService.listarParaAluno(jwt.getSubject(), pageable);
     }
 }

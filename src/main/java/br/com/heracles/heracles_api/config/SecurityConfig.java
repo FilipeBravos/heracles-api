@@ -71,6 +71,11 @@ public class SecurityConfig {
                         // que ela tambem preenche.
                         .requestMatchers(HttpMethod.POST, "/api/usuarios/*/avaliacoes-fisicas")
                             .hasAnyRole("ADMIN", "PROFESSOR")
+                        // Contrato assinado e documento administrativo/legal,
+                        // nao informacao de treino — o professor nao precisa
+                        // dele como precisa da anamnese.
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios/*/contrato")
+                            .hasAnyRole("ADMIN", "SECRETARIA")
                         // Cadastro e manutencao de alunos: recepcao e administracao.
                         .requestMatchers(HttpMethod.POST, "/api/usuarios/**").hasAnyRole("ADMIN", "SECRETARIA")
                         .requestMatchers(HttpMethod.PUT, "/api/usuarios/*/treinos")
@@ -156,6 +161,33 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/dashboard/**")
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+
+                        // Horario de professor: disponibilidade informativa
+                        // para o balcao marcar personal ou aula com ele.
+                        // Cadastrar/remover bloco e estrutura de escala,
+                        // como o cadastro de unidade — so administracao.
+                        .requestMatchers(HttpMethod.GET, "/api/professores/*/horarios")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers("/api/professores/**").hasRole("ADMIN")
+
+                        // Aula em grupo: quem monta a agenda e professor e
+                        // administracao (mesmo grupo que monta ficha de
+                        // treino). Marcar/desmarcar vaga em nome de outro
+                        // aluno e do balcao — o proprio aluno reserva pelo
+                        // /api/eu/aulas, que ja cai na regra authenticated().
+                        .requestMatchers(HttpMethod.GET, "/api/aulas/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers(HttpMethod.POST, "/api/aulas").hasAnyRole("ADMIN", "PROFESSOR")
+                        .requestMatchers(HttpMethod.PUT, "/api/aulas/*/cancelamento")
+                            .hasAnyRole("ADMIN", "PROFESSOR")
+                        .requestMatchers("/api/aulas/*/inscricoes/**").hasAnyRole("ADMIN", "SECRETARIA")
+
+                        // Sessao de personal: nunca self-service — quem
+                        // agenda e o balcao. O professor le a propria
+                        // agenda, mas nao marca nem cancela sessao.
+                        .requestMatchers(HttpMethod.GET, "/api/sessoes-personal/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+                        .requestMatchers("/api/sessoes-personal/**").hasAnyRole("ADMIN", "SECRETARIA")
 
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

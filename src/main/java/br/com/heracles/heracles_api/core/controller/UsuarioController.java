@@ -4,9 +4,11 @@ import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
+import br.com.heracles.heracles_api.core.dto.ContratoDtos;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
 import br.com.heracles.heracles_api.core.service.UsuarioService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -47,10 +49,11 @@ public class UsuarioController {
     @PostMapping
     public ResponseEntity<UsuarioResponse> criar(@RequestBody @Valid UsuarioRequests.Criar request,
                                                  @AuthenticationPrincipal Jwt jwt,
+                                                 HttpServletRequest httpRequest,
                                                  UriComponentsBuilder uriBuilder) {
         // Quem cria sai do token, nunca do corpo: o perfil que a pessoa
         // pode cadastrar depende de quem ela e.
-        UsuarioResponse criado = service.criar(request, jwt.getSubject());
+        UsuarioResponse criado = service.criar(request, jwt.getSubject(), httpRequest.getRemoteAddr());
         var uri = uriBuilder.path("/api/usuarios/{id}").buildAndExpand(criado.id()).toUri();
         return ResponseEntity.created(uri).body(criado);
     }
@@ -81,6 +84,12 @@ public class UsuarioController {
     public AnamneseDtos.Response salvarAnamnese(@PathVariable Long id,
                                                 @RequestBody @Valid AnamneseDtos.Salvar request) {
         return service.salvarAnamnese(id, request);
+    }
+
+    /** O contrato assinado no cadastro — so leitura, nao ha PUT: o que foi assinado nao se reescreve. */
+    @GetMapping("/{id}/contrato")
+    public ContratoDtos.Response buscarContrato(@PathVariable Long id) {
+        return service.buscarContrato(id);
     }
 
     @GetMapping("/{id}/foto")
