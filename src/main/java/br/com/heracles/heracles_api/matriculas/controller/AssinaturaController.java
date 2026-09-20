@@ -68,6 +68,13 @@ public class AssinaturaController {
         return service.financeiro();
     }
 
+    /** Ocupacao por hora do dia, por unidade, nos ultimos dias informados. */
+    @GetMapping("/ocupacao")
+    public AssinaturaDtos.PainelOcupacao ocupacao(
+            @RequestParam(defaultValue = "30") @Min(1) @Max(365) int dias) {
+        return service.ocupacao(dias);
+    }
+
     /**
      * Fila de vencimentos do painel: quem vence nos proximos dias — e quem
      * ja venceu.

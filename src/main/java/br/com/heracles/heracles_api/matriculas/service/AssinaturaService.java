@@ -26,6 +26,7 @@ import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -203,6 +205,40 @@ public class AssinaturaService {
 
         return new AssinaturaDtos.PainelFinanceiro(
                 mesAtual.toString(), mrr, assinaturasAtivas, ticketMedio, inadimplenciaEmReais, projecaoDoMes);
+    }
+
+    /**
+     * Ocupacao por hora do dia, por unidade: em que horario a casa costuma
+     * lotar, pra dimensionar equipamento e horario de aula em grupo.
+     *
+     * Toda unidade cadastrada entra, mesmo sem nenhum check-in no
+     * periodo — a serie zerada e o dado, nao um erro a esconder.
+     */
+    @Transactional(readOnly = true)
+    public AssinaturaDtos.PainelOcupacao ocupacao(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+
+        Map<Long, List<LinhaOcupacao>> linhasPorUnidade = checkinRepository
+                .contarOcupacaoPorUnidadeEHora(desde).stream()
+                .collect(Collectors.groupingBy(LinhaOcupacao::unidadeId));
+
+        List<AssinaturaDtos.OcupacaoPorUnidade> unidades = unidadeRepository.findAll().stream()
+                .sorted((a, b) -> a.getNome().compareToIgnoreCase(b.getNome()))
+                .map(unidade -> {
+                    Map<Integer, Long> porHora = linhasPorUnidade
+                            .getOrDefault(unidade.getId(), List.of()).stream()
+                            .collect(Collectors.toMap(LinhaOcupacao::hora, LinhaOcupacao::quantidade));
+
+                    List<AssinaturaDtos.PontoOcupacao> pontos = new ArrayList<>(24);
+                    for (int hora = 0; hora < 24; hora++) {
+                        pontos.add(new AssinaturaDtos.PontoOcupacao(hora, porHora.getOrDefault(hora, 0L)));
+                    }
+
+                    return new AssinaturaDtos.OcupacaoPorUnidade(unidade.getId(), unidade.getNome(), pontos);
+                })
+                .toList();
+
+        return new AssinaturaDtos.PainelOcupacao(dias, unidades);
     }
 
     /**
