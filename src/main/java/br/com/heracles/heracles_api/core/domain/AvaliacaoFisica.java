@@ -1,5 +1,6 @@
 package br.com.heracles.heracles_api.core.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -7,9 +8,11 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Uma avaliacao fisica periodica do aluno — peso, medidas e uma foto de
+ * Uma avaliacao fisica periodica do aluno — peso, medidas e fotos de
  * evolucao, complementar a anamnese.
  *
  * A anamnese e o intake: preenchida uma vez, atualizada quando muda algo
@@ -17,10 +20,6 @@ import java.time.LocalDateTime;
  * nova, e a evolucao esta em comparar uma com a anterior, nao em editar
  * a mesma. Por isso nao ha PUT: uma medida errada se corrige com uma
  * avaliacao nova, nao reescrevendo o passado.
- *
- * Foto guardada como bytes no proprio banco, no mesmo padrao da foto do
- * aluno (ver Usuario) — sem infraestrutura de upload multipart no
- * projeto, base64 no corpo da requisicao e a forma mais simples.
  */
 @Entity
 @Table(name = "avaliacoes_fisicas", schema = "core")
@@ -59,13 +58,17 @@ public class AvaliacaoFisica {
     @Column(name = "circunferencia_coxa")
     private BigDecimal circunferenciaCoxa;
 
+    @Column(name = "circunferencia_peito")
+    private BigDecimal circunferenciaPeito;
+
     private String observacoes;
 
-    /** Sem @Lob de proposito — ver o comentario equivalente em Usuario.foto. */
-    private byte[] foto;
-
-    @Column(name = "foto_content_type")
-    private String fotoContentType;
+    // LAZY + @OrderBy: o historico nao carrega fotos, e quando carregadas
+    // vem na ordem em que foram enviadas (frente, lado, costas...).
+    @OneToMany(mappedBy = "avaliacao", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    @OrderBy("ordem ASC")
+    @JsonIgnore
+    private List<AvaliacaoFisicaFoto> fotos = new ArrayList<>();
 
     @Column(name = "data_criacao", updatable = false)
     private LocalDateTime dataCriacao;
@@ -74,6 +77,12 @@ public class AvaliacaoFisica {
     public void prePersist() {
         if (this.dataCriacao == null) this.dataCriacao = LocalDateTime.now();
         if (this.data == null) this.data = LocalDate.now();
+    }
+
+    public void adicionarFoto(AvaliacaoFisicaFoto foto) {
+        foto.setAvaliacao(this);
+        foto.setOrdem(this.fotos.size());
+        this.fotos.add(foto);
     }
 
     /** IMC = peso / altura(m)^2 — null quando falta peso ou altura. */

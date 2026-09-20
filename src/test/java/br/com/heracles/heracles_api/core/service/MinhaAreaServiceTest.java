@@ -42,6 +42,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -51,6 +52,7 @@ class MinhaAreaServiceTest {
     @Mock private TreinoRepository treinoRepository;
     @Mock private AssinaturaRepository assinaturaRepository;
     @Mock private HistoricoTreinoAlunoRepository historicoTreinoRepository;
+    @Mock private UsuarioService usuarioService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     private MinhaAreaService service;
@@ -59,8 +61,8 @@ class MinhaAreaServiceTest {
 
     @BeforeEach
     void preparar() {
-        service = new MinhaAreaService(
-                usuarioRepository, treinoRepository, assinaturaRepository, historicoTreinoRepository, passwordEncoder);
+        service = new MinhaAreaService(usuarioRepository, treinoRepository, assinaturaRepository,
+                historicoTreinoRepository, passwordEncoder, usuarioService);
 
         marina = new Usuario();
         marina.setId(10L);
@@ -375,5 +377,33 @@ class MinhaAreaServiceTest {
         treino.adicionarExercicio(exercicio);
 
         return treino;
+    }
+
+    // ---------------------------------------------------------------
+    // Avaliacao fisica: so delega, resolvendo o id pelo token
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Meu historico de avaliacoes fisicas usa o id de quem o token identifica")
+    void minhasAvaliacoesFisicasUsaIdDoToken() {
+        service.minhasAvaliacoesFisicas("marina@ex.com");
+
+        verify(usuarioService).historicoAvaliacoesFisicas(10L);
+    }
+
+    @Test
+    @DisplayName("Meu comparativo fisico usa o id de quem o token identifica")
+    void meuComparativoFisicoUsaIdDoToken() {
+        service.meuComparativoFisico("bruno@ex.com", 1L, 2L);
+
+        verify(usuarioService).compararAvaliacoesFisicas(20L, 1L, 2L);
+    }
+
+    @Test
+    @DisplayName("Minha foto de avaliacao fisica usa o id de quem o token identifica")
+    void minhaFotoAvaliacaoFisicaUsaIdDoToken() {
+        service.minhaFotoAvaliacaoFisica("marina@ex.com", 5L, 50L);
+
+        verify(usuarioService).buscarFotoAvaliacaoFisica(10L, 5L, 50L);
     }
 }

@@ -4,6 +4,8 @@ import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
 import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
 import br.com.heracles.heracles_api.agenda.service.AulaGrupoService;
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisicaFoto;
+import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MeusDadosDtos;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
@@ -16,6 +18,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -26,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -162,5 +167,30 @@ public class EuController {
             @AuthenticationPrincipal Jwt jwt,
             @PageableDefault(size = 20, sort = "dataHora", direction = Sort.Direction.ASC) Pageable pageable) {
         return agendamentoPersonalService.listarParaAluno(jwt.getSubject(), pageable);
+    }
+
+    /** O historico de avaliacoes fisicas de quem esta autenticado — so leitura, quem registra e o professor. */
+    @GetMapping("/avaliacoes-fisicas")
+    public List<AvaliacaoFisicaDtos.Response> minhasAvaliacoesFisicas(@AuthenticationPrincipal Jwt jwt) {
+        return service.minhasAvaliacoesFisicas(jwt.getSubject());
+    }
+
+    /** A primeira avaliacao contra a mais recente, ou duas escolhidas via deId/paraId. */
+    @GetMapping("/avaliacoes-fisicas/comparativo")
+    public AvaliacaoFisicaDtos.Comparativo meuComparativoFisico(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) Long deId,
+            @RequestParam(required = false) Long paraId) {
+        return service.meuComparativoFisico(jwt.getSubject(), deId, paraId);
+    }
+
+    @GetMapping("/avaliacoes-fisicas/{avaliacaoId}/fotos/{fotoId}")
+    public ResponseEntity<byte[]> minhaFotoAvaliacaoFisica(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable Long avaliacaoId, @PathVariable Long fotoId) {
+        AvaliacaoFisicaFoto foto = service.minhaFotoAvaliacaoFisica(jwt.getSubject(), avaliacaoId, fotoId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(foto.getFotoContentType()))
+                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+                .body(foto.getFoto());
     }
 }

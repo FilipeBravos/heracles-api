@@ -1,6 +1,6 @@
 package br.com.heracles.heracles_api.core.controller;
 
-import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisicaFoto;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
@@ -113,13 +113,26 @@ public class UsuarioController {
         return service.registrarAvaliacaoFisica(id, request);
     }
 
-    @GetMapping("/{id}/avaliacoes-fisicas/{avaliacaoId}/foto")
+    /** Uma avaliacao pode ter varias fotos (frente, lado, costas) — cada uma tem seu proprio id. */
+    @GetMapping("/{id}/avaliacoes-fisicas/{avaliacaoId}/fotos/{fotoId}")
     public ResponseEntity<byte[]> buscarFotoAvaliacaoFisica(
-            @PathVariable Long id, @PathVariable Long avaliacaoId) {
-        AvaliacaoFisica avaliacao = service.buscarFotoAvaliacaoFisica(id, avaliacaoId);
+            @PathVariable Long id, @PathVariable Long avaliacaoId, @PathVariable Long fotoId) {
+        AvaliacaoFisicaFoto foto = service.buscarFotoAvaliacaoFisica(id, avaliacaoId, fotoId);
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(avaliacao.getFotoContentType()))
+                .contentType(MediaType.parseMediaType(foto.getFotoContentType()))
                 .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
-                .body(avaliacao.getFoto());
+                .body(foto.getFoto());
+    }
+
+    /**
+     * O comparativo entre duas avaliacoes: a primeira e a mais recente por
+     * padrao, ou as duas escolhidas via deId/paraId.
+     */
+    @GetMapping("/{id}/avaliacoes-fisicas/comparativo")
+    public AvaliacaoFisicaDtos.Comparativo compararAvaliacoesFisicas(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long deId,
+            @RequestParam(required = false) Long paraId) {
+        return service.compararAvaliacoesFisicas(id, deId, paraId);
     }
 }

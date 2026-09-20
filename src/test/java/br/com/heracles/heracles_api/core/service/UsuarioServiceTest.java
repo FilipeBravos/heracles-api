@@ -9,6 +9,7 @@ import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.domain.AvaliacaoFisica;
+import br.com.heracles.heracles_api.core.domain.AvaliacaoFisicaFoto;
 import br.com.heracles.heracles_api.core.repository.AnamneseRepository;
 import br.com.heracles.heracles_api.core.repository.AvaliacaoFisicaRepository;
 import br.com.heracles.heracles_api.core.repository.ContratoAssinadoRepository;
@@ -612,20 +613,24 @@ class UsuarioServiceTest {
     }
 
     @Test
-    @DisplayName("Foto da avaliacao exige base64 e content-type juntos")
-    void avaliacaoFisicaFotoExigeParJunto() {
+    @DisplayName("Registrar avaliacao fisica grava a circunferencia do peito e a galeria de fotos, na ordem enviada")
+    void registrarAvaliacaoFisicaGravaPeitoEGaleria() {
         Usuario aluno = new Usuario();
         aluno.setId(1L);
         given(repository.findById(1L)).willReturn(Optional.of(aluno));
+        given(avaliacaoFisicaRepository.save(any())).willAnswer(i -> i.getArgument(0));
 
         AvaliacaoFisicaDtos.Salvar request = new AvaliacaoFisicaDtos.Salvar(
                 null, new java.math.BigDecimal("70"), new java.math.BigDecimal("170"),
-                null, null, null, null, null, null,
-                null, "image/png");
+                null, null, null, null, null, new java.math.BigDecimal("95"), null,
+                List.of(
+                        new AvaliacaoFisicaDtos.Foto(Base64.getEncoder().encodeToString(new byte[]{1}), "image/png"),
+                        new AvaliacaoFisicaDtos.Foto(Base64.getEncoder().encodeToString(new byte[]{2}), "image/jpeg")));
 
-        assertThatThrownBy(() -> servico().registrarAvaliacaoFisica(1L, request))
-                .isInstanceOf(RegraNegocioException.class)
-                .hasMessageContaining("juntos");
+        AvaliacaoFisicaDtos.Response resposta = servico().registrarAvaliacaoFisica(1L, request);
+
+        assertThat(resposta.circunferenciaPeito()).isEqualByComparingTo("95");
+        assertThat(resposta.fotoIds()).hasSize(2);
     }
 
     @Test
@@ -646,12 +651,96 @@ class UsuarioServiceTest {
         AvaliacaoFisica avaliacao = new AvaliacaoFisica();
         avaliacao.setId(50L);
         avaliacao.setAluno(outroAluno);
-        avaliacao.setFoto(new byte[]{1, 2, 3});
+        AvaliacaoFisicaFoto foto = new AvaliacaoFisicaFoto();
+        foto.setId(500L);
+        foto.setFoto(new byte[]{1, 2, 3});
+        avaliacao.adicionarFoto(foto);
         given(avaliacaoFisicaRepository.findById(50L)).willReturn(Optional.of(avaliacao));
 
         // A avaliacao existe, mas e do aluno 2 — pedida pelo aluno 1, deve
         // dar 404 igual a se nao existisse, sem revelar que pertence a outro.
-        assertThatThrownBy(() -> servico().buscarFotoAvaliacaoFisica(1L, 50L))
+        assertThatThrownBy(() -> servico().buscarFotoAvaliacaoFisica(1L, 50L, 500L))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("Foto que nao existe na avaliacao e 404, mesmo sendo do aluno certo")
+    void fotoInexistenteNaAvaliacaoNaoEhEncontrada() {
+        Usuario aluno = new Usuario();
+        aluno.setId(1L);
+        AvaliacaoFisica avaliacao = new AvaliacaoFisica();
+        avaliacao.setId(50L);
+        avaliacao.setAluno(aluno);
+        given(avaliacaoFisicaRepository.findById(50L)).willReturn(Optional.of(avaliacao));
+
+        assertThatThrownBy(() -> servico().buscarFotoAvaliacaoFisica(1L, 50L, 999L))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    // ---------------------------------------------------------------
+    // Comparativo de avaliacoes fisicas
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Comparativo padrao e indisponivel com menos de duas avaliacoes")
+    void comparativoIndisponivelComMenosDeDuasAvaliacoes() {
+        given(repository.existsById(1L)).willReturn(true);
+        AvaliacaoFisica unica = new AvaliacaoFisica();
+        unica.setId(10L);
+        given(avaliacaoFisicaRepository.findFirstByAlunoIdOrderByDataAsc(1L)).willReturn(Optional.of(unica));
+        given(avaliacaoFisicaRepository.findFirstByAlunoIdOrderByDataDesc(1L)).willReturn(Optional.of(unica));
+
+        assertThat(servico().compararAvaliacoesFisicas(1L, null, null).disponivel()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Comparativo padrao usa a primeira e a mais recente, com o delta certo")
+    void comparativoPadraoUsaPrimeiraEMaisRecente() {
+        given(repository.existsById(1L)).willReturn(true);
+
+        AvaliacaoFisica primeira = new AvaliacaoFisica();
+        primeira.setId(10L);
+        primeira.setPesoKg(new java.math.BigDecimal("80"));
+        primeira.setAlturaCm(new java.math.BigDecimal("170"));
+
+        AvaliacaoFisica maisRecente = new AvaliacaoFisica();
+        maisRecente.setId(20L);
+        maisRecente.setPesoKg(new java.math.BigDecimal("75"));
+        maisRecente.setAlturaCm(new java.math.BigDecimal("170"));
+
+        given(avaliacaoFisicaRepository.findFirstByAlunoIdOrderByDataAsc(1L)).willReturn(Optional.of(primeira));
+        given(avaliacaoFisicaRepository.findFirstByAlunoIdOrderByDataDesc(1L)).willReturn(Optional.of(maisRecente));
+
+        AvaliacaoFisicaDtos.Comparativo comparativo = servico().compararAvaliacoesFisicas(1L, null, null);
+
+        assertThat(comparativo.disponivel()).isTrue();
+        assertThat(comparativo.de().id()).isEqualTo(10L);
+        assertThat(comparativo.para().id()).isEqualTo(20L);
+        assertThat(comparativo.delta().pesoKg()).isEqualByComparingTo("-5");
+    }
+
+    @Test
+    @DisplayName("Comparativo com apenas um dos ids e erro de regra de negocio")
+    void comparativoComApenasUmIdEErro() {
+        given(repository.existsById(1L)).willReturn(true);
+
+        assertThatThrownBy(() -> servico().compararAvaliacoesFisicas(1L, 10L, null))
+                .isInstanceOf(RegraNegocioException.class);
+    }
+
+    @Test
+    @DisplayName("Comparativo com avaliacao de outro aluno e 404")
+    void comparativoComAvaliacaoDeOutroAlunoEhErro() {
+        given(repository.existsById(1L)).willReturn(true);
+
+        Usuario outroAluno = new Usuario();
+        outroAluno.setId(2L);
+        AvaliacaoFisica deOutroAluno = new AvaliacaoFisica();
+        deOutroAluno.setId(30L);
+        deOutroAluno.setAluno(outroAluno);
+        given(avaliacaoFisicaRepository.findById(30L)).willReturn(Optional.of(deOutroAluno));
+
+        assertThatThrownBy(() -> servico().compararAvaliacoesFisicas(1L, 30L, 31L))
                 .isInstanceOf(RecursoNaoEncontradoException.class);
     }
 }
