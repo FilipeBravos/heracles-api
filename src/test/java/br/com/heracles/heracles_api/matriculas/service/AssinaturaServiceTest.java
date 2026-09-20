@@ -11,6 +11,7 @@ import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
@@ -328,19 +329,34 @@ class AssinaturaServiceTest {
     }
 
     @Test
-    @DisplayName("Cancelar registra a data e nao apaga a assinatura")
+    @DisplayName("Cancelar registra a data, o motivo e nao apaga a assinatura")
     void cancelarRegistraData() {
         Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(20));
         given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
 
-        AssinaturaDtos.Response cancelada = service.cancelar(99L);
+        AssinaturaDtos.Response cancelada = service.cancelar(99L,
+                new AssinaturaDtos.Cancelar(MotivoCancelamento.PRECO, "Achou caro"));
 
         assertThat(cancelada.status()).isEqualTo(StatusAssinatura.CANCELADA);
         assertThat(cancelada.dataCancelamento()).isEqualTo(LocalDate.now());
+        assertThat(cancelada.motivoCancelamento()).isEqualTo(MotivoCancelamento.PRECO);
+        assertThat(cancelada.comentarioCancelamento()).isEqualTo("Achou caro");
 
-        assertThatThrownBy(() -> service.cancelar(99L))
+        assertThatThrownBy(() -> service.cancelar(99L, new AssinaturaDtos.Cancelar(MotivoCancelamento.OUTRO, null)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("ja esta cancelada");
+    }
+
+    @Test
+    @DisplayName("Comentario em branco no cancelamento vira nulo")
+    void cancelarComentarioEmBrancoViraNulo() {
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(20));
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+
+        AssinaturaDtos.Response cancelada = service.cancelar(99L,
+                new AssinaturaDtos.Cancelar(MotivoCancelamento.OUTRO, "   "));
+
+        assertThat(cancelada.comentarioCancelamento()).isNull();
     }
 
     // ---------------------------------------------------------------
@@ -422,6 +438,37 @@ class AssinaturaServiceTest {
         verify(cobrancaRepository).save(any());
     }
 
+    // ---------------------------------------------------------------
+    // Renovacao automatica (so cartao)
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Renovacao automatica cobra e renova cada assinatura no cartao que a consulta devolveu")
+    void renovacaoAutomaticaRenovaCandidatas() {
+        Assinatura primeira = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(1));
+        primeira.setFormaPagamento(FormaPagamento.CARTAO);
+        Assinatura segunda = assinaturaDe(StatusAssinatura.INADIMPLENTE, LocalDate.now().minusDays(10));
+        segunda.setFormaPagamento(FormaPagamento.CARTAO);
+        given(repository.buscarParaRenovacaoAutomatica(LocalDate.now())).willReturn(List.of(primeira, segunda));
+
+        int quantidade = service.renovarAutomaticamente();
+
+        assertThat(quantidade).isEqualTo(2);
+        assertThat(primeira.getStatus()).isEqualTo(StatusAssinatura.ATIVA);
+        assertThat(segunda.getStatus()).isEqualTo(StatusAssinatura.ATIVA);
+        // Cada uma gerou a cobranca do proximo ciclo.
+        verify(cobrancaRepository, times(2)).save(any());
+    }
+
+    @Test
+    @DisplayName("Sem candidatas no cartao, a renovacao automatica nao faz nada")
+    void renovacaoAutomaticaSemCandidatasNaoFazNada() {
+        given(repository.buscarParaRenovacaoAutomatica(any())).willReturn(List.of());
+
+        assertThat(service.renovarAutomaticamente()).isZero();
+        verify(cobrancaRepository, never()).save(any());
+    }
+
     @Test
     @DisplayName("Cancelar cancela a cobranca pendente da assinatura")
     void cancelarCancelaCobrancaPendente() {
@@ -433,9 +480,22 @@ class AssinaturaServiceTest {
         given(cobrancaRepository.findByAssinaturaIdAndStatus(99L, StatusCobranca.PENDENTE))
                 .willReturn(Optional.of(pendente));
 
-        service.cancelar(99L);
+        service.cancelar(99L, new AssinaturaDtos.Cancelar(MotivoCancelamento.OUTRO, null));
 
         assertThat(pendente.getStatus()).isEqualTo(StatusCobranca.CANCELADA);
+    }
+
+    @Test
+    @DisplayName("Motivos de cancelamento vem prontos do repositorio")
+    void motivosCancelamentoDelegaParaRepositorio() {
+        given(repository.contarCancelamentosPorMotivo()).willReturn(
+                List.of(new LinhaMotivoCancelamento(MotivoCancelamento.PRECO, 5L)));
+
+        List<LinhaMotivoCancelamento> motivos = service.motivosCancelamento();
+
+        assertThat(motivos).hasSize(1);
+        assertThat(motivos.get(0).motivo()).isEqualTo(MotivoCancelamento.PRECO);
+        assertThat(motivos.get(0).quantidade()).isEqualTo(5L);
     }
 
     // ---------------------------------------------------------------

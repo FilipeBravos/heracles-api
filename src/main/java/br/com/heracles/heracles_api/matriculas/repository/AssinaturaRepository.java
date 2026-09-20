@@ -4,6 +4,7 @@ import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -146,6 +147,19 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
     List<Assinatura> buscarAtivasVencidasAntesDe(LocalDate limite);
 
     /**
+     * Quem o job de renovacao automatica cobra sozinho: pagas no cartao,
+     * vencidas (ou ja inadimplentes, se o job ficou algum dia sem rodar),
+     * nunca canceladas. So cartao entra — boleto e PIX nao tem "cobranca
+     * automatica" de verdade, exigem uma acao de pagamento de quem paga.
+     */
+    @EntityGraph(attributePaths = {"aluno", "plano"})
+    @Query("""
+            select a from Assinatura a
+            where a.formaPagamento = 'CARTAO' and a.status <> 'CANCELADA' and a.dataVencimento <= :hoje
+            """)
+    List<Assinatura> buscarParaRenovacaoAutomatica(LocalDate hoje);
+
+    /**
      * Quantas assinaturas foram canceladas em cada mes, desde a data
      * informada — mesmo formato de contarPorMesDesde, so que por
      * data_cancelamento em vez de data_inicio.
@@ -232,4 +246,14 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             order by count(a) desc
             """)
     List<ContagemAgrupada> contarIndicacoesPorAluno();
+
+    /** Quantos cancelamentos por motivo, do mais comum para o menos comum — a razao de churn que a gestao mais precisa ver primeiro. */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento(a.motivoCancelamento, count(a))
+            from Assinatura a
+            where a.motivoCancelamento is not null
+            group by a.motivoCancelamento
+            order by count(a) desc
+            """)
+    List<LinhaMotivoCancelamento> contarCancelamentosPorMotivo();
 }

@@ -6,6 +6,7 @@ import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
 import br.com.heracles.heracles_api.matriculas.domain.LembreteEnviado;
 import br.com.heracles.heracles_api.matriculas.domain.MotivoAcesso;
+import br.com.heracles.heracles_api.matriculas.domain.MotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import jakarta.validation.constraints.AssertTrue;
@@ -61,6 +62,20 @@ public final class AssinaturaDtos {
         }
     }
 
+    /**
+     * O motivo do cancelamento, preenchido pela secretaria no proprio
+     * ato — nao uma pesquisa enviada depois, que dificilmente alguem que
+     * ja saiu responderia.
+     */
+    public record Cancelar(
+            @NotNull(message = "Informe o motivo do cancelamento")
+            MotivoCancelamento motivo,
+
+            @Size(max = 500, message = "Comentario longo demais")
+            String comentario
+    ) {
+    }
+
     public record Response(
             Long id,
             Long alunoId,
@@ -77,6 +92,8 @@ public final class AssinaturaDtos {
             LocalDate dataVencimento,
             StatusAssinatura status,
             LocalDate dataCancelamento,
+            MotivoCancelamento motivoCancelamento,
+            String comentarioCancelamento,
             /** Derivado da data, nao gravado: o status e o que o operador marcou. */
             boolean vencida
     ) {
@@ -101,6 +118,8 @@ public final class AssinaturaDtos {
                     assinatura.getDataVencimento(),
                     assinatura.getStatus(),
                     assinatura.getDataCancelamento(),
+                    assinatura.getMotivoCancelamento(),
+                    assinatura.getComentarioCancelamento(),
                     assinatura.estaVencidaEm(hoje)
             );
         }

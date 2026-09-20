@@ -25,6 +25,7 @@ import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
@@ -305,8 +306,16 @@ public class AssinaturaService {
     @Transactional
     public AssinaturaDtos.Response renovar(Long id) {
         Assinatura assinatura = carregar(id);
-        LocalDate hoje = LocalDate.now();
+        renovarAssinatura(assinatura, LocalDate.now());
+        return AssinaturaDtos.Response.de(assinatura);
+    }
 
+    /**
+     * Paga a cobranca em aberto (se houver) e gera a do proximo ciclo —
+     * a mesma sequencia tanto para quem a secretaria renova na tela
+     * quanto para quem o cartao renova sozinho.
+     */
+    private void renovarAssinatura(Assinatura assinatura, LocalDate hoje) {
         cobrancaRepository.findByAssinaturaIdAndStatus(assinatura.getId(), StatusCobranca.PENDENTE)
                 .ifPresent(cobranca -> cobranca.confirmarPagamento(hoje));
         // A cobranca usa GenerationType.IDENTITY: o INSERT da proxima (logo
@@ -318,7 +327,22 @@ public class AssinaturaService {
 
         assinatura.renovar(hoje);
         criarCobranca(assinatura);
-        return AssinaturaDtos.Response.de(assinatura);
+    }
+
+    /**
+     * O job diario de renovacao automatica: quem paga no cartao e venceu
+     * (ou ja esta inadimplente, se o job ficou algum dia sem rodar) e
+     * cobrado e renovado sozinho, sem a secretaria precisar confirmar.
+     *
+     * So cartao — boleto e PIX nao tem "cobranca automatica" de verdade,
+     * exigem uma acao real de pagamento de quem paga.
+     */
+    @Transactional
+    public int renovarAutomaticamente() {
+        LocalDate hoje = LocalDate.now();
+        List<Assinatura> candidatas = repository.buscarParaRenovacaoAutomatica(hoje);
+        candidatas.forEach(assinatura -> renovarAssinatura(assinatura, hoje));
+        return candidatas.size();
     }
 
     /** Pagamento nao entrou: interrompe o acesso sem apagar a matricula. A cobranca continua pendente — a divida nao some. */
@@ -330,12 +354,18 @@ public class AssinaturaService {
     }
 
     @Transactional
-    public AssinaturaDtos.Response cancelar(Long id) {
+    public AssinaturaDtos.Response cancelar(Long id, AssinaturaDtos.Cancelar request) {
         Assinatura assinatura = carregar(id);
-        assinatura.cancelar(LocalDate.now());
+        assinatura.cancelar(LocalDate.now(), request.motivo(), vazioComoNulo(request.comentario()));
         cobrancaRepository.findByAssinaturaIdAndStatus(assinatura.getId(), StatusCobranca.PENDENTE)
                 .ifPresent(Cobranca::cancelar);
         return AssinaturaDtos.Response.de(assinatura);
+    }
+
+    /** Quantos cancelamentos por motivo, do mais comum para o menos comum. */
+    @Transactional(readOnly = true)
+    public List<LinhaMotivoCancelamento> motivosCancelamento() {
+        return repository.contarCancelamentosPorMotivo();
     }
 
     /** Extrato de cobrancas da assinatura, mais recente primeiro. */
@@ -619,5 +649,10 @@ public class AssinaturaService {
     private Usuario carregarAluno(Long id) {
         return usuarioRepository.findById(id)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Aluno", id));
+    }
+
+    /** "" e null contam a mesma coisa: nenhum comentario foi deixado. */
+    private String vazioComoNulo(String texto) {
+        return (texto == null || texto.isBlank()) ? null : texto.trim();
     }
 }
