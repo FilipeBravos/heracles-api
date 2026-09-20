@@ -1,16 +1,20 @@
 package br.com.heracles.heracles_api.matriculas.dto;
 
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
+import br.com.heracles.heracles_api.matriculas.domain.CanalLembrete;
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
+import br.com.heracles.heracles_api.matriculas.domain.LembreteEnviado;
 import br.com.heracles.heracles_api.matriculas.domain.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -36,11 +40,25 @@ public final class AssinaturaDtos {
             LocalDate dataInicio,
 
             @NotNull(message = "Informe a forma de pagamento")
-            FormaPagamento formaPagamento
+            FormaPagamento formaPagamento,
+
+            /** So faz sentido quando origem = INDICACAO. */
+            Long indicadoPorAlunoId
     ) {
         // A data de vencimento nao entra aqui: ela e calculada a partir do
         // periodo do plano. Se viesse do cliente, bastaria editar a
         // requisicao para se dar um ano de academia.
+
+        /**
+         * Mesma coerencia do token de parceiro: indicacao sem indicador nao
+         * da pra creditar a ninguem, e um indicador em matricula que nao e
+         * indicacao nao significa nada.
+         */
+        @AssertTrue(message = "Indicacao exige o aluno que indicou")
+        public boolean isIndicadorCoerente() {
+            if (origem == null) return true;
+            return origem.exigeIndicador() == (indicadoPorAlunoId != null);
+        }
     }
 
     public record Response(
@@ -52,6 +70,8 @@ public final class AssinaturaDtos {
             BigDecimal valorMensal,
             OrigemAssinatura origem,
             String tokenParceiro,
+            Long indicadoPorAlunoId,
+            String indicadoPorNome,
             FormaPagamento formaPagamento,
             LocalDate dataInicio,
             LocalDate dataVencimento,
@@ -74,6 +94,8 @@ public final class AssinaturaDtos {
                     assinatura.getPlano().getValorMensal(),
                     assinatura.getOrigem(),
                     assinatura.getTokenParceiro(),
+                    assinatura.getIndicadoPor() != null ? assinatura.getIndicadoPor().getId() : null,
+                    assinatura.getIndicadoPor() != null ? assinatura.getIndicadoPor().getNome() : null,
                     assinatura.getFormaPagamento(),
                     assinatura.getDataInicio(),
                     assinatura.getDataVencimento(),
@@ -212,6 +234,10 @@ public final class AssinaturaDtos {
      * `cobrancaPendenteId`/`formaPagamento`/`codigoSimulado` saem nulos
      * quando nao ha cobranca em aberto (por exemplo, logo apos cancelar
      * a assinatura) — a tela nao oferece "confirmar pagamento" nesse caso.
+     *
+     * `ultimoLembreteCanal`/`ultimoLembreteEnviadoEm` saem nulos quando
+     * ainda nao ha lembrete gerado para o estagio atual — o job diario
+     * ainda nao rodou, ou o aluno acabou de entrar na regua.
      */
     public record LinhaInadimplencia(
             Long assinaturaId,
@@ -225,9 +251,12 @@ public final class AssinaturaDtos {
             long diasParaVencer,
             Long cobrancaPendenteId,
             FormaPagamento formaPagamento,
-            String codigoSimulado
+            String codigoSimulado,
+            CanalLembrete ultimoLembreteCanal,
+            LocalDateTime ultimoLembreteEnviadoEm
     ) {
-        public static LinhaInadimplencia de(Assinatura assinatura, Cobranca cobrancaPendente, LocalDate hoje) {
+        public static LinhaInadimplencia de(Assinatura assinatura, Cobranca cobrancaPendente,
+                                             LembreteEnviado ultimoLembrete, LocalDate hoje) {
             return new LinhaInadimplencia(
                     assinatura.getId(),
                     assinatura.getAluno().getId(),
@@ -240,7 +269,9 @@ public final class AssinaturaDtos {
                     ChronoUnit.DAYS.between(hoje, assinatura.getDataVencimento()),
                     cobrancaPendente != null ? cobrancaPendente.getId() : null,
                     cobrancaPendente != null ? cobrancaPendente.getFormaPagamento() : null,
-                    cobrancaPendente != null ? cobrancaPendente.getCodigoSimulado() : null
+                    cobrancaPendente != null ? cobrancaPendente.getCodigoSimulado() : null,
+                    ultimoLembrete != null ? ultimoLembrete.getCanal() : null,
+                    ultimoLembrete != null ? ultimoLembrete.getDataEnvio() : null
             );
         }
     }

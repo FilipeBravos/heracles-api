@@ -41,6 +41,11 @@ public class Assinatura {
     @Column(name = "token_parceiro")
     private String tokenParceiro;
 
+    /** Quem trouxe este aluno. So preenchido quando origem = INDICACAO. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "indicado_por_aluno_id")
+    private Usuario indicadoPor;
+
     @Column(name = "data_inicio")
     private LocalDate dataInicio;
 

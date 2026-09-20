@@ -8,9 +8,12 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
+import br.com.heracles.heracles_api.matriculas.domain.CanalLembrete;
 import br.com.heracles.heracles_api.matriculas.domain.Checkin;
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
+import br.com.heracles.heracles_api.matriculas.domain.EstagioLembrete;
 import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
+import br.com.heracles.heracles_api.matriculas.domain.LembreteEnviado;
 import br.com.heracles.heracles_api.matriculas.domain.MotivoAcesso;
 import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
@@ -21,9 +24,11 @@ import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
+import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.LembreteEnviadoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -64,19 +69,22 @@ public class AssinaturaService {
     private final UnidadeRepository unidadeRepository;
     private final CobrancaRepository cobrancaRepository;
     private final CheckinRepository checkinRepository;
+    private final LembreteEnviadoRepository lembreteRepository;
 
     public AssinaturaService(AssinaturaRepository repository,
                              PlanoRepository planoRepository,
                              UsuarioRepository usuarioRepository,
                              UnidadeRepository unidadeRepository,
                              CobrancaRepository cobrancaRepository,
-                             CheckinRepository checkinRepository) {
+                             CheckinRepository checkinRepository,
+                             LembreteEnviadoRepository lembreteRepository) {
         this.repository = repository;
         this.planoRepository = planoRepository;
         this.usuarioRepository = usuarioRepository;
         this.unidadeRepository = unidadeRepository;
         this.cobrancaRepository = cobrancaRepository;
         this.checkinRepository = checkinRepository;
+        this.lembreteRepository = lembreteRepository;
     }
 
     @Transactional(readOnly = true)
@@ -199,6 +207,16 @@ public class AssinaturaService {
     }
 
     /**
+     * O ranking do programa de indicacao: quantas matriculas cada aluno
+     * trouxe, do maior para o menor. So aparece quem ja indicou alguem —
+     * um ranking com todo mundo em zero nao ajuda a reconhecer ninguem.
+     */
+    @Transactional(readOnly = true)
+    public List<ContagemAgrupada> indicacoes() {
+        return repository.contarIndicacoesPorAluno();
+    }
+
+    /**
      * A fila de vencimentos dos proximos `dias`.
      *
      * Traz junto as que ja venceram: uma matricula vencida ha uma semana
@@ -255,12 +273,14 @@ public class AssinaturaService {
         }
 
         String token = normalizarToken(request.origem(), request.tokenParceiro());
+        Usuario indicadoPor = normalizarIndicador(request.origem(), request.indicadoPorAlunoId(), aluno);
 
         Assinatura assinatura = new Assinatura();
         assinatura.setAluno(aluno);
         assinatura.setPlano(plano);
         assinatura.setOrigem(request.origem());
         assinatura.setTokenParceiro(token);
+        assinatura.setIndicadoPor(indicadoPor);
         assinatura.setFormaPagamento(request.formaPagamento());
         assinatura.setStatus(StatusAssinatura.ATIVA);
 
@@ -355,8 +375,16 @@ public class AssinaturaService {
                 .findByAssinaturaIdInAndStatus(assinaturaIds, StatusCobranca.PENDENTE).stream()
                 .collect(Collectors.toMap(cobranca -> cobranca.getAssinatura().getId(), cobranca -> cobranca));
 
+        Map<Long, LembreteEnviado> ultimoLembretePorAssinatura = lembreteRepository
+                .findByAssinaturaIdIn(assinaturaIds).stream()
+                .collect(Collectors.toMap(
+                        lembrete -> lembrete.getAssinatura().getId(),
+                        lembrete -> lembrete,
+                        (mantido, novo) -> novo.getDataEnvio().isAfter(mantido.getDataEnvio()) ? novo : mantido));
+
         return pagina.map(assinatura -> AssinaturaDtos.LinhaInadimplencia.de(
-                assinatura, cobrancasPendentes.get(assinatura.getId()), hoje));
+                assinatura, cobrancasPendentes.get(assinatura.getId()),
+                ultimoLembretePorAssinatura.get(assinatura.getId()), hoje));
     }
 
     /**
@@ -370,6 +398,70 @@ public class AssinaturaService {
         List<Assinatura> vencidas = repository.buscarAtivasVencidasAntesDe(limite);
         vencidas.forEach(Assinatura::marcarInadimplente);
         return vencidas.size();
+    }
+
+    /**
+     * O job diario de lembretes: um por estagio da regua (vence em breve,
+     * vencida, inadimplente), nunca repetido — a secretaria nao precisa
+     * mais avisar cada aluno na mao.
+     *
+     * Sem WhatsApp nem SMTP integrado no projeto (mesmo caso da cobranca):
+     * o envio e simulado, so um registro do que teria saido e por qual
+     * canal.
+     */
+    @Transactional
+    public int gerarLembretes(int diasVenceEmBreve) {
+        LocalDate hoje = LocalDate.now();
+        LocalDate limiteDaJanela = hoje.plusDays(diasVenceEmBreve);
+
+        int venceEmBreve = registrarLembretes(
+                repository.buscarAtivasVencendoEntre(hoje, limiteDaJanela), EstagioLembrete.VENCE_EM_BREVE);
+        int vencidas = registrarLembretes(
+                repository.buscarAtivasVencidasAntesDe(hoje), EstagioLembrete.VENCIDA);
+        int inadimplentes = registrarLembretes(
+                repository.findByStatus(StatusAssinatura.INADIMPLENTE), EstagioLembrete.INADIMPLENTE);
+
+        return venceEmBreve + vencidas + inadimplentes;
+    }
+
+    /**
+     * Grava um lembrete por assinatura da lista, pulando quem ja tem um
+     * deste estagio — e o que garante "um por estagio, nunca repetido"
+     * mesmo o job rodando todo santo dia.
+     *
+     * Canal por telefone quando ha um cadastrado, senao e-mail: e o
+     * contato mais direto de academia, e todo aluno tem pelo menos um
+     * dos dois (cadastro exige e-mail sempre).
+     */
+    private int registrarLembretes(List<Assinatura> candidatas, EstagioLembrete estagio) {
+        int criados = 0;
+        for (Assinatura assinatura : candidatas) {
+            if (lembreteRepository.existsByAssinaturaIdAndEstagio(assinatura.getId(), estagio)) {
+                continue;
+            }
+
+            Usuario aluno = assinatura.getAluno();
+            String telefone = aluno.getTelefone();
+            boolean temTelefone = telefone != null && !telefone.isBlank();
+
+            LembreteEnviado lembrete = new LembreteEnviado();
+            lembrete.setAssinatura(assinatura);
+            lembrete.setEstagio(estagio);
+            lembrete.setCanal(temTelefone ? CanalLembrete.WHATSAPP : CanalLembrete.EMAIL);
+            lembrete.setDestinatario(temTelefone ? telefone : aluno.getEmail());
+            lembreteRepository.save(lembrete);
+            criados++;
+        }
+        return criados;
+    }
+
+    /** Extrato de lembretes (simulados) da assinatura, mais recente primeiro. */
+    @Transactional(readOnly = true)
+    public List<LembreteDtos.Response> historicoLembretes(Long assinaturaId) {
+        carregar(assinaturaId); // 404 antes de devolver historico vazio de id inexistente
+        return lembreteRepository.findByAssinaturaIdOrderByDataEnvioDesc(assinaturaId).stream()
+                .map(LembreteDtos.Response::de)
+                .toList();
     }
 
     /**
@@ -491,6 +583,32 @@ public class AssinaturaService {
                     "Este codigo de parceiro ja esta em uso por outra matricula vigente.");
         }
         return token;
+    }
+
+    /**
+     * Resolve quem indicou, quando a origem e INDICACAO.
+     *
+     * A coerencia origem/indicador ja e checada no DTO (`isIndicadorCoerente`)
+     * — o que falta aqui e o que so o banco sabe: o indicador existe, e um
+     * aluno de verdade, e nao e o proprio aluno se indicando.
+     */
+    private Usuario normalizarIndicador(OrigemAssinatura origem, Long indicadoPorAlunoId, Usuario aluno) {
+        if (!origem.exigeIndicador()) {
+            return null;
+        }
+
+        if (indicadoPorAlunoId.equals(aluno.getId())) {
+            throw new RegraNegocioException("Um aluno nao pode se indicar a si mesmo.");
+        }
+
+        Usuario indicador = usuarioRepository.findById(indicadoPorAlunoId)
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Aluno que indicou", indicadoPorAlunoId));
+        if (indicador.getTipoPerfil() != TipoPerfil.ALUNO) {
+            throw new RegraNegocioException(
+                    "\"%s\" nao esta cadastrado como aluno e nao pode ter indicado ninguem."
+                            .formatted(indicador.getNome()));
+        }
+        return indicador;
     }
 
     private Assinatura carregar(Long id) {
