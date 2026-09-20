@@ -87,6 +87,10 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
 
     long countByStatus(StatusAssinatura status);
 
+    /** Quem o lembrete automatico avisa no estagio INADIMPLENTE — o dedup de LembreteEnviado evita repetir. */
+    @EntityGraph(attributePaths = {"aluno", "plano"})
+    List<Assinatura> findByStatus(StatusAssinatura status);
+
     long countByDataInicioGreaterThanEqual(LocalDate data);
 
     /**
@@ -213,4 +217,19 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             group by u.id, u.nome
             """)
     List<ContagemAgrupada> contarCancelamentosPorUnidade(LocalDate inicio, LocalDate fimExclusivo);
+
+    /**
+     * Ranking do programa de indicacao: quantas matriculas cada aluno
+     * trouxe, canceladas inclusive — a indicacao aconteceu de qualquer
+     * jeito, e descontar a cancelada penalizaria quem indicou por um
+     * motivo que nao e dele.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada(
+                       i.id, i.nome, count(a))
+            from Assinatura a join a.indicadoPor i
+            group by i.id, i.nome
+            order by count(a) desc
+            """)
+    List<ContagemAgrupada> contarIndicacoesPorAluno();
 }

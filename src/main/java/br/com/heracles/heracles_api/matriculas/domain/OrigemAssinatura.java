@@ -5,14 +5,20 @@ package br.com.heracles.heracles_api.matriculas.domain;
  *
  * Parceiro (Gympass/TotalPass) traz um identificador do aluno la, que e o
  * que permite conferir o acesso; matricula direta nao tem token nenhum.
+ * Indicacao traz outro aluno, nao um token — quem trouxe o novo aluno.
  */
 public enum OrigemAssinatura {
 
     DIRETO,
     GYMPASS,
-    TOTALPASS;
+    TOTALPASS,
+    INDICACAO;
 
     public boolean exigeTokenParceiro() {
-        return this != DIRETO;
+        return this == GYMPASS || this == TOTALPASS;
+    }
+
+    public boolean exigeIndicador() {
+        return this == INDICACAO;
     }
 }

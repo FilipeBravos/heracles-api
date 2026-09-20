@@ -3,6 +3,8 @@ package br.com.heracles.heracles_api.matriculas.controller;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
+import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -94,6 +96,18 @@ public class AssinaturaController {
     @GetMapping("/{id}/cobrancas")
     public List<CobrancaDtos.Response> historicoCobrancas(@PathVariable Long id) {
         return service.historicoCobrancas(id);
+    }
+
+    /** Extrato de lembretes (simulados) desta assinatura, mais recente primeiro. */
+    @GetMapping("/{id}/lembretes")
+    public List<LembreteDtos.Response> historicoLembretes(@PathVariable Long id) {
+        return service.historicoLembretes(id);
+    }
+
+    /** Ranking do programa de indicacao: quantas matriculas cada aluno trouxe. */
+    @GetMapping("/indicacoes")
+    public List<ContagemAgrupada> indicacoes() {
+        return service.indicacoes();
     }
 
     /** Cabecalho do relatorio de inadimplencia: quantos em cada etapa da regua. */

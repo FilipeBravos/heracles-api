@@ -10,9 +10,11 @@ import br.com.heracles.heracles_api.matriculas.domain.*;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
+import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.LembreteEnviadoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +41,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +55,7 @@ class AssinaturaServiceTest {
     @Mock private UnidadeRepository unidadeRepository;
     @Mock private CobrancaRepository cobrancaRepository;
     @Mock private CheckinRepository checkinRepository;
+    @Mock private LembreteEnviadoRepository lembreteRepository;
 
     private AssinaturaService service;
 
@@ -63,7 +68,7 @@ class AssinaturaServiceTest {
     void preparar() {
         service = new AssinaturaService(
                 repository, planoRepository, usuarioRepository, unidadeRepository, cobrancaRepository,
-                checkinRepository);
+                checkinRepository, lembreteRepository);
 
         centro = new Unidade();
         centro.setId(1L);
@@ -104,7 +109,7 @@ class AssinaturaServiceTest {
         LocalDate inicio = LocalDate.of(2026, 3, 10);
 
         AssinaturaDtos.Response mensal = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, inicio, FormaPagamento.PIX));
+                10L, 3L, OrigemAssinatura.DIRETO, null, inicio, FormaPagamento.PIX, null));
 
         assertThat(mensal.dataVencimento()).isEqualTo(LocalDate.of(2026, 4, 10));
         assertThat(mensal.status()).isEqualTo(StatusAssinatura.ATIVA);
@@ -112,7 +117,7 @@ class AssinaturaServiceTest {
         // Mesmo pedido, plano anual: quem define o periodo e o plano.
         mensalCentro.setTipoCobranca(TipoCobranca.PACOTE_ANUAL);
         AssinaturaDtos.Response anual = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, inicio, FormaPagamento.PIX));
+                10L, 3L, OrigemAssinatura.DIRETO, null, inicio, FormaPagamento.PIX, null));
 
         assertThat(anual.dataVencimento()).isEqualTo(LocalDate.of(2027, 3, 10));
     }
@@ -121,7 +126,7 @@ class AssinaturaServiceTest {
     @DisplayName("Sem data de inicio, a matricula comeca hoje")
     void semDataDeInicioComecaHoje() {
         AssinaturaDtos.Response criada = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX));
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX, null));
 
         assertThat(criada.dataInicio()).isEqualTo(LocalDate.now());
         assertThat(criada.dataVencimento()).isEqualTo(LocalDate.now().plusMonths(1));
@@ -137,7 +142,7 @@ class AssinaturaServiceTest {
         // ele so esta em atraso. Se nao barrasse, bastaria atrasar o
         // pagamento para abrir uma segunda e deixar a primeira para tras.
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX)))
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX, null)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("ja tem matricula vigente");
     }
@@ -148,7 +153,7 @@ class AssinaturaServiceTest {
         aluno.setTipoPerfil(TipoPerfil.PROFESSOR);
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX)))
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX, null)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("So alunos se matriculam");
     }
@@ -159,7 +164,7 @@ class AssinaturaServiceTest {
         mensalCentro.setAtivo(false);
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX)))
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX, null)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("fora de linha");
     }
@@ -168,17 +173,17 @@ class AssinaturaServiceTest {
     @DisplayName("Parceiro exige token; matricula direta recusa token")
     void coerenciaDoTokenDeParceiro() {
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.GYMPASS, "  ", null, FormaPagamento.PIX)))
+                10L, 3L, OrigemAssinatura.GYMPASS, "  ", null, FormaPagamento.PIX, null)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("exige o codigo do aluno");
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, "GP-123", null, FormaPagamento.PIX)))
+                10L, 3L, OrigemAssinatura.DIRETO, "GP-123", null, FormaPagamento.PIX, null)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("nao tem codigo de parceiro");
 
         AssinaturaDtos.Response valida = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.TOTALPASS, " TP-987 ", null, FormaPagamento.PIX));
+                10L, 3L, OrigemAssinatura.TOTALPASS, " TP-987 ", null, FormaPagamento.PIX, null));
         assertThat(valida.tokenParceiro()).isEqualTo("TP-987");
     }
 
@@ -189,9 +194,94 @@ class AssinaturaServiceTest {
                 .willReturn(true);
 
         assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.GYMPASS, "GP-123", null, FormaPagamento.PIX)))
+                10L, 3L, OrigemAssinatura.GYMPASS, "GP-123", null, FormaPagamento.PIX, null)))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("ja esta em uso");
+    }
+
+    // ---------------------------------------------------------------
+    // Programa de indicacao
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Matricula por indicacao grava quem indicou")
+    void matriculaPorIndicacaoGravaIndicador() {
+        Usuario indicadora = new Usuario();
+        indicadora.setId(20L);
+        indicadora.setNome("Bruna Lima");
+        indicadora.setTipoPerfil(TipoPerfil.ALUNO);
+        given(usuarioRepository.findById(20L)).willReturn(Optional.of(indicadora));
+
+        AssinaturaDtos.Response criada = service.matricular(new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.INDICACAO, null, null, FormaPagamento.PIX, 20L));
+
+        assertThat(criada.indicadoPorAlunoId()).isEqualTo(20L);
+        assertThat(criada.indicadoPorNome()).isEqualTo("Bruna Lima");
+    }
+
+    @Test
+    @DisplayName("Indicacao sem indicador e erro de validacao do DTO")
+    void indicacaoSemIndicadorEhInvalida() {
+        AssinaturaDtos.Matricular request = new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.INDICACAO, null, null, FormaPagamento.PIX, null);
+
+        assertThat(request.isIndicadorCoerente()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Indicador em matricula que nao e indicacao e erro de validacao do DTO")
+    void indicadorForaDeIndicacaoEhInvalido() {
+        AssinaturaDtos.Matricular request = new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.PIX, 20L);
+
+        assertThat(request.isIndicadorCoerente()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Aluno nao pode se indicar a si mesmo")
+    void alunoNaoSeIndicaASiMesmo() {
+        assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.INDICACAO, null, null, FormaPagamento.PIX, 10L)))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("nao pode se indicar a si mesmo");
+    }
+
+    @Test
+    @DisplayName("Indicador inexistente e 404")
+    void indicadorInexistenteE404() {
+        given(usuarioRepository.findById(777L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.INDICACAO, null, null, FormaPagamento.PIX, 777L)))
+                .isInstanceOf(br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("Quem nao e aluno nao pode ter indicado ninguem")
+    void indicadorPrecisaSerAluno() {
+        Usuario professor = new Usuario();
+        professor.setId(30L);
+        professor.setNome("Prof. Ana");
+        professor.setTipoPerfil(TipoPerfil.PROFESSOR);
+        given(usuarioRepository.findById(30L)).willReturn(Optional.of(professor));
+
+        assertThatThrownBy(() -> service.matricular(new AssinaturaDtos.Matricular(
+                10L, 3L, OrigemAssinatura.INDICACAO, null, null, FormaPagamento.PIX, 30L)))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("nao esta cadastrado como aluno");
+    }
+
+    @Test
+    @DisplayName("Ranking de indicacoes vem pronto do repositorio")
+    void indicacoesDelegaParaRepositorio() {
+        given(repository.contarIndicacoesPorAluno()).willReturn(
+                List.of(new ContagemAgrupada(20L, "Bruna Lima", 3L)));
+
+        List<ContagemAgrupada> ranking = service.indicacoes();
+
+        assertThat(ranking).hasSize(1);
+        assertThat(ranking.get(0).nome()).isEqualTo("Bruna Lima");
+        assertThat(ranking.get(0).quantidade()).isEqualTo(3L);
     }
 
     // ---------------------------------------------------------------
@@ -261,7 +351,7 @@ class AssinaturaServiceTest {
     @DisplayName("Matricular gera a primeira cobranca, pendente, no vencimento da assinatura")
     void matricularCriaCobrancaPendente() {
         AssinaturaDtos.Response criada = service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, LocalDate.of(2026, 3, 10), FormaPagamento.PIX));
+                10L, 3L, OrigemAssinatura.DIRETO, null, LocalDate.of(2026, 3, 10), FormaPagamento.PIX, null));
 
         ArgumentCaptor<Cobranca> captor = ArgumentCaptor.forClass(Cobranca.class);
         verify(cobrancaRepository).save(captor.capture());
@@ -280,7 +370,7 @@ class AssinaturaServiceTest {
     @DisplayName("Cobranca por cartao nao tem codigo de copia e cola")
     void cobrancaPorCartaoNaoTemCodigo() {
         service.matricular(new AssinaturaDtos.Matricular(
-                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.CARTAO));
+                10L, 3L, OrigemAssinatura.DIRETO, null, null, FormaPagamento.CARTAO, null));
 
         ArgumentCaptor<Cobranca> captor = ArgumentCaptor.forClass(Cobranca.class);
         verify(cobrancaRepository).save(captor.capture());
@@ -482,6 +572,93 @@ class AssinaturaServiceTest {
         given(repository.buscarAtivasVencidasAntesDe(any())).willReturn(List.of());
 
         assertThat(service.autoBloquearVencidas(5)).isZero();
+    }
+
+    // ---------------------------------------------------------------
+    // Lembretes automaticos
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Gerar lembretes registra um por estagio da regua")
+    void gerarLembretesRegistraUmPorEstagio() {
+        Assinatura venceEmBreve = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(3));
+        Assinatura vencida = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(2));
+        Assinatura inadimplente = assinaturaDe(StatusAssinatura.INADIMPLENTE, LocalDate.now().minusDays(40));
+
+        given(repository.buscarAtivasVencendoEntre(any(), any())).willReturn(List.of(venceEmBreve));
+        given(repository.buscarAtivasVencidasAntesDe(any())).willReturn(List.of(vencida));
+        given(repository.findByStatus(StatusAssinatura.INADIMPLENTE)).willReturn(List.of(inadimplente));
+
+        int total = service.gerarLembretes(7);
+
+        assertThat(total).isEqualTo(3);
+        verify(lembreteRepository, times(3)).save(any());
+    }
+
+    @Test
+    @DisplayName("Lembrete ja enviado para o estagio nao se repete")
+    void gerarLembretesNaoRepeteEstagioJaEnviado() {
+        Assinatura vencida = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(2));
+        given(repository.buscarAtivasVencendoEntre(any(), any())).willReturn(List.of());
+        given(repository.buscarAtivasVencidasAntesDe(any())).willReturn(List.of(vencida));
+        given(repository.findByStatus(StatusAssinatura.INADIMPLENTE)).willReturn(List.of());
+        given(lembreteRepository.existsByAssinaturaIdAndEstagio(99L, EstagioLembrete.VENCIDA)).willReturn(true);
+
+        assertThat(service.gerarLembretes(7)).isZero();
+        verify(lembreteRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Canal e WhatsApp quando o aluno tem telefone, senao e-mail")
+    void canalDoLembreteDependeDoTelefone() {
+        aluno.setTelefone("11999990000");
+        aluno.setEmail("marina@ex.com");
+        Assinatura vencida = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().minusDays(2));
+        given(repository.buscarAtivasVencendoEntre(any(), any())).willReturn(List.of());
+        given(repository.buscarAtivasVencidasAntesDe(any())).willReturn(List.of(vencida));
+        given(repository.findByStatus(StatusAssinatura.INADIMPLENTE)).willReturn(List.of());
+
+        ArgumentCaptor<LembreteEnviado> captor = ArgumentCaptor.forClass(LembreteEnviado.class);
+        service.gerarLembretes(7);
+        verify(lembreteRepository).save(captor.capture());
+
+        assertThat(captor.getValue().getCanal()).isEqualTo(CanalLembrete.WHATSAPP);
+        assertThat(captor.getValue().getDestinatario()).isEqualTo("11999990000");
+
+        // Sem telefone, cai para e-mail.
+        aluno.setTelefone(null);
+        service.gerarLembretes(7);
+        verify(lembreteRepository, times(2)).save(captor.capture());
+        assertThat(captor.getValue().getCanal()).isEqualTo(CanalLembrete.EMAIL);
+        assertThat(captor.getValue().getDestinatario()).isEqualTo("marina@ex.com");
+    }
+
+    @Test
+    @DisplayName("Historico de lembretes vem do mais recente pro mais antigo")
+    void historicoLembretesOrdenaDoMaisRecente() {
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(5));
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+
+        LembreteEnviado lembrete = new LembreteEnviado();
+        lembrete.setId(1L);
+        lembrete.setEstagio(EstagioLembrete.VENCE_EM_BREVE);
+        lembrete.setCanal(CanalLembrete.EMAIL);
+        lembrete.setDestinatario("marina@ex.com");
+        given(lembreteRepository.findByAssinaturaIdOrderByDataEnvioDesc(99L)).willReturn(List.of(lembrete));
+
+        List<LembreteDtos.Response> historico = service.historicoLembretes(99L);
+
+        assertThat(historico).hasSize(1);
+        assertThat(historico.get(0).canal()).isEqualTo(CanalLembrete.EMAIL);
+    }
+
+    @Test
+    @DisplayName("Historico de lembretes de assinatura inexistente e 404")
+    void historicoLembretesAssinaturaInexistenteE404() {
+        given(repository.findWithAlunoAndPlanoById(999L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.historicoLembretes(999L))
+                .isInstanceOf(br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException.class);
     }
 
     // ---------------------------------------------------------------
