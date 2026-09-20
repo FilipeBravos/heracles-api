@@ -52,6 +52,13 @@ public class AssinaturaController {
         return service.historicoMensal(meses);
     }
 
+    /** Painel de retencao: tendencia de churn mensal, e o detalhamento do ultimo mes por plano e por unidade. */
+    @GetMapping("/retencao")
+    public AssinaturaDtos.Retencao retencao(
+            @RequestParam(defaultValue = "12") @Min(2) @Max(36) int meses) {
+        return service.retencao(meses);
+    }
+
     /**
      * Fila de vencimentos do painel: quem vence nos proximos dias — e quem
      * ja venceu.

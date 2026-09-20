@@ -156,6 +156,51 @@ public final class AssinaturaDtos {
     }
 
     /**
+     * Um mes da serie de churn.
+     *
+     * `ativosNoInicio` e quem ja existia (e nao tinha sido cancelada)
+     * antes do mes comecar — a base contra a qual o cancelamento do mes
+     * se mede. `taxaChurn` vem pronta (0 quando a base e zero, para o
+     * front nao ter que tratar divisao por zero).
+     */
+    public record PontoChurn(
+            String mes,
+            long ativosNoInicio,
+            long cancelados,
+            double taxaChurn
+    ) {
+    }
+
+    public record HistoricoChurn(
+            int meses,
+            List<PontoChurn> pontos
+    ) {
+    }
+
+    /** Uma linha do detalhamento de churn por plano ou por unidade, no mes de referencia. */
+    public record LinhaChurn(
+            Long id,
+            String nome,
+            long ativosNoInicio,
+            long cancelados,
+            double taxaChurn
+    ) {
+    }
+
+    /**
+     * O painel de retencao: a tendencia mensal e o detalhamento do ultimo
+     * mes fechado — o mes corrente fica de fora do detalhamento por
+     * estar incompleto, e mostraria uma taxa artificialmente baixa.
+     */
+    public record Retencao(
+            HistoricoChurn historico,
+            String mesReferencia,
+            List<LinhaChurn> porPlano,
+            List<LinhaChurn> porUnidade
+    ) {
+    }
+
+    /**
      * Uma linha do relatorio de inadimplencia.
      *
      * `diasParaVencer` usa a mesma convencao de `Vencimento` (negativo
