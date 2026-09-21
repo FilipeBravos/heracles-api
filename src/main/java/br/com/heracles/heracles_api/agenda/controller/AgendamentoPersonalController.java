@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.agenda.controller;
 
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
+import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -9,6 +10,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/sessoes-personal")
@@ -37,5 +40,11 @@ public class AgendamentoPersonalController {
     @PutMapping("/{id}/cancelamento")
     public AgendamentoPersonalDtos.Response cancelar(@PathVariable Long id) {
         return service.cancelar(id);
+    }
+
+    /** Nota media por professor, do melhor pro pior — visibilidade de qualidade de atendimento pra gestao. */
+    @GetMapping("/avaliacoes")
+    public List<LinhaAvaliacaoProfessor> avaliacoes() {
+        return service.mediaAvaliacaoPorProfessor();
     }
 }

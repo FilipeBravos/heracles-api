@@ -159,14 +159,37 @@ public class EuController {
     }
 
     /**
-     * As sessoes de personal de quem esta autenticado — so leitura. Quem
-     * marca continua sendo a secretaria, no balcao.
+     * As sessoes de personal de quem esta autenticado. Agendar e cancelar
+     * continuam sendo a secretaria, no balcao — mas confirmar que a propria
+     * sessao aconteceu (professor) e avaliar uma ja realizada (aluno) sao
+     * as duas escritas que este grupo de rotas permite.
      */
     @GetMapping("/sessoes-personal")
     public Page<AgendamentoPersonalDtos.Response> minhasSessoesPersonal(
             @AuthenticationPrincipal Jwt jwt,
             @PageableDefault(size = 20, sort = "dataHora", direction = Sort.Direction.ASC) Pageable pageable) {
         return agendamentoPersonalService.listarParaAluno(jwt.getSubject(), pageable);
+    }
+
+    /**
+     * O professor confirma que a propria sessao aconteceu — so ele estava
+     * la para atestar. E o que libera o aluno a avaliar.
+     */
+    @PutMapping("/sessoes-personal/{id}/realizacao")
+    public AgendamentoPersonalDtos.Response marcarSessaoPersonalRealizada(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        return agendamentoPersonalService.marcarRealizadaEu(jwt.getSubject(), id);
+    }
+
+    /**
+     * O aluno avalia a propria sessao ja realizada — nota de 1 a 5,
+     * comentario opcional. So depois de REALIZADA, e uma vez so.
+     */
+    @PutMapping("/sessoes-personal/{id}/avaliacao")
+    public AgendamentoPersonalDtos.Response avaliarSessaoPersonal(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+            @RequestBody @Valid AgendamentoPersonalDtos.Avaliar request) {
+        return agendamentoPersonalService.avaliarEu(jwt.getSubject(), id, request);
     }
 
     /** O historico de avaliacoes fisicas de quem esta autenticado — so leitura, quem registra e o professor. */

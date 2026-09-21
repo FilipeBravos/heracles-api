@@ -4,6 +4,7 @@ import br.com.heracles.heracles_api.agenda.domain.AgendamentoPersonal;
 import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
+import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Sessoes de personal: agendadas pela secretaria/administracao a pedido do
@@ -101,8 +103,49 @@ public class AgendamentoPersonalService {
     public AgendamentoPersonalDtos.Response cancelar(Long id) {
         AgendamentoPersonal sessao = repository.findById(id)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Sessao de personal", id));
-        sessao.setStatus(StatusAgendamento.CANCELADO);
+        sessao.cancelar();
         return AgendamentoPersonalDtos.Response.de(sessao);
+    }
+
+    /**
+     * O professor confirma que a propria sessao aconteceu — so ele estava
+     * la para atestar. "Nao encontrada" tambem cobre tentar confirmar a
+     * sessao de outro professor: sem revelar que ela existe, so que nao e
+     * dele.
+     */
+    @Transactional
+    public AgendamentoPersonalDtos.Response marcarRealizadaEu(String emailAutenticado, Long id) {
+        AgendamentoPersonal sessao = repository.findById(id)
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Sessao de personal", id));
+        Usuario professor = eu(emailAutenticado);
+        if (!sessao.getProfessor().getId().equals(professor.getId())) {
+            throw RecursoNaoEncontradoException.de("Sessao de personal", id);
+        }
+        sessao.marcarRealizada(LocalDateTime.now());
+        return AgendamentoPersonalDtos.Response.de(sessao);
+    }
+
+    /**
+     * O aluno avalia a propria sessao ja realizada. Mesma logica de
+     * "nao encontrada" para sessao de outro aluno.
+     */
+    @Transactional
+    public AgendamentoPersonalDtos.Response avaliarEu(String emailAutenticado, Long id,
+                                                       AgendamentoPersonalDtos.Avaliar request) {
+        AgendamentoPersonal sessao = repository.findById(id)
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Sessao de personal", id));
+        Usuario aluno = eu(emailAutenticado);
+        if (!sessao.getAluno().getId().equals(aluno.getId())) {
+            throw RecursoNaoEncontradoException.de("Sessao de personal", id);
+        }
+        sessao.avaliar(request.nota(), vazioComoNulo(request.comentario()));
+        return AgendamentoPersonalDtos.Response.de(sessao);
+    }
+
+    /** Nota media por professor, do melhor pro pior — visibilidade de qualidade de atendimento pra gestao. */
+    @Transactional(readOnly = true)
+    public List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor() {
+        return repository.mediaAvaliacaoPorProfessor();
     }
 
     /** Mesma checagem de AulaGrupoService.garantirSemConflito, do outro lado da agenda do professor. */
