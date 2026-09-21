@@ -9,16 +9,22 @@ import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.operacoes.domain.ItemVenda;
 import br.com.heracles.heracles_api.operacoes.domain.Produto;
 import br.com.heracles.heracles_api.operacoes.domain.Venda;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoMaisVendido;
 import br.com.heracles.heracles_api.operacoes.dto.VendaDtos;
 import br.com.heracles.heracles_api.operacoes.repository.ProdutoRepository;
 import br.com.heracles.heracles_api.operacoes.repository.VendaRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -49,6 +55,30 @@ public class VendaService {
         return repository.findWithItensById(id)
                 .map(VendaDtos.Response::de)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Venda", id));
+    }
+
+    /**
+     * O relatorio de vendas da loja: faturamento e ticket medio do
+     * periodo, os produtos mais vendidos e a comparacao entre unidades.
+     */
+    @Transactional(readOnly = true)
+    public VendaDtos.PainelVendas relatorio(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+
+        BigDecimal faturamentoTotal = repository.faturamentoDesde(desde);
+        long quantidadeVendas = repository.countByDataVendaAfter(desde);
+        BigDecimal ticketMedio = quantidadeVendas > 0
+                ? faturamentoTotal.divide(BigDecimal.valueOf(quantidadeVendas), 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        List<LinhaProdutoMaisVendido> maisVendidos =
+                repository.produtosMaisVendidosDesde(desde, PageRequest.of(0, 10));
+
+        List<VendaDtos.LinhaVendaPorUnidade> porUnidade = repository.faturamentoPorUnidadeDesde(desde).stream()
+                .map(VendaDtos.LinhaVendaPorUnidade::de)
+                .toList();
+
+        return new VendaDtos.PainelVendas(dias, faturamentoTotal, quantidadeVendas, ticketMedio, maisVendidos, porUnidade);
     }
 
     /**

@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -95,5 +96,40 @@ public final class VendaDtos {
                 );
             }
         }
+    }
+
+    /** Faturamento, numero de vendas e o ticket medio de uma unidade no periodo. */
+    public record LinhaVendaPorUnidade(
+            Long unidadeId,
+            String unidadeNome,
+            BigDecimal faturamentoTotal,
+            long quantidadeVendas,
+            BigDecimal ticketMedio
+    ) {
+        public static LinhaVendaPorUnidade de(LinhaFaturamentoPorUnidade bruta) {
+            BigDecimal ticketMedio = bruta.quantidadeVendas() > 0
+                    ? bruta.faturamentoTotal().divide(BigDecimal.valueOf(bruta.quantidadeVendas()), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+            return new LinhaVendaPorUnidade(
+                    bruta.unidadeId(), bruta.unidadeNome(), bruta.faturamentoTotal(), bruta.quantidadeVendas(), ticketMedio);
+        }
+    }
+
+    /**
+     * O relatorio de vendas da loja: o resumo do periodo, os produtos mais
+     * vendidos e a comparacao entre unidades — o dinheiro e o volume da
+     * loja, do jeito que o financeiro de matriculas ja mostra o de
+     * assinatura.
+     */
+    public record PainelVendas(
+            int dias,
+            BigDecimal faturamentoTotal,
+            long quantidadeVendas,
+            BigDecimal ticketMedio,
+            /** Do mais vendido pro menos, limitado aos top 10. */
+            List<LinhaProdutoMaisVendido> maisVendidos,
+            /** Da maior receita pra menor. */
+            List<LinhaVendaPorUnidade> porUnidade
+    ) {
     }
 }

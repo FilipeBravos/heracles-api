@@ -9,6 +9,8 @@ import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.operacoes.domain.MetodoPagamento;
 import br.com.heracles.heracles_api.operacoes.domain.Produto;
 import br.com.heracles.heracles_api.operacoes.domain.Venda;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorUnidade;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoMaisVendido;
 import br.com.heracles.heracles_api.operacoes.dto.VendaDtos;
 import br.com.heracles.heracles_api.operacoes.repository.ProdutoRepository;
 import br.com.heracles.heracles_api.operacoes.repository.VendaRepository;
@@ -169,5 +171,46 @@ class VendaServiceTest {
         org.mockito.ArgumentCaptor<Venda> captor = org.mockito.ArgumentCaptor.forClass(Venda.class);
         verify(vendaRepository).save(captor.capture());
         assertThat(captor.getValue().getOperador().getEmail()).isEqualTo("carla@heracles.com.br");
+    }
+
+    // ---------------------------------------------------------------
+    // Relatorio de vendas
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("O ticket medio e o faturamento dividido pelo numero de vendas")
+    void relatorioCalculaTicketMedio() {
+        given(vendaRepository.faturamentoDesde(any())).willReturn(new BigDecimal("1000.00"));
+        given(vendaRepository.countByDataVendaAfter(any())).willReturn(4L);
+        given(vendaRepository.produtosMaisVendidosDesde(any(), any())).willReturn(
+                List.of(new LinhaProdutoMaisVendido(10L, "Whey Protein 900g", 8L, new BigDecimal("1199.20"))));
+        given(vendaRepository.faturamentoPorUnidadeDesde(any())).willReturn(
+                List.of(new LinhaFaturamentoPorUnidade(1L, "Unidade Centro", new BigDecimal("1000.00"), 4L)));
+
+        VendaDtos.PainelVendas relatorio = service.relatorio(30);
+
+        assertThat(relatorio.dias()).isEqualTo(30);
+        assertThat(relatorio.faturamentoTotal()).isEqualByComparingTo("1000.00");
+        assertThat(relatorio.quantidadeVendas()).isEqualTo(4L);
+        assertThat(relatorio.ticketMedio()).isEqualByComparingTo("250.00");
+        assertThat(relatorio.maisVendidos()).hasSize(1);
+        assertThat(relatorio.maisVendidos().get(0).produtoNome()).isEqualTo("Whey Protein 900g");
+        assertThat(relatorio.porUnidade()).hasSize(1);
+        assertThat(relatorio.porUnidade().get(0).ticketMedio()).isEqualByComparingTo("250.00");
+    }
+
+    @Test
+    @DisplayName("Sem venda no periodo, o ticket medio e zero em vez de dividir por zero")
+    void relatorioSemVendasTicketMedioZero() {
+        given(vendaRepository.faturamentoDesde(any())).willReturn(BigDecimal.ZERO);
+        given(vendaRepository.countByDataVendaAfter(any())).willReturn(0L);
+        given(vendaRepository.produtosMaisVendidosDesde(any(), any())).willReturn(List.of());
+        given(vendaRepository.faturamentoPorUnidadeDesde(any())).willReturn(List.of());
+
+        VendaDtos.PainelVendas relatorio = service.relatorio(30);
+
+        assertThat(relatorio.ticketMedio()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(relatorio.maisVendidos()).isEmpty();
+        assertThat(relatorio.porUnidade()).isEmpty();
     }
 }
