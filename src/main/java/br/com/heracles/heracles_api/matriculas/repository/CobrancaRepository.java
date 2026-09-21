@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.matriculas.repository;
 
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.StatusCobranca;
+import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -31,6 +32,22 @@ public interface CobrancaRepository extends JpaRepository<Cobranca, Long> {
                  or (c.assinatura.status = 'ATIVA' and c.assinatura.dataVencimento < :hoje))
             """)
     BigDecimal somarInadimplenciaEmAberto(LocalDate hoje);
+
+    /**
+     * Mesma base de somarInadimplenciaEmAberto, agrupada por unidade —
+     * mesmo espalhamento das consultas de AssinaturaRepository: uma
+     * cobranca de plano de rede conta inteira em cada unidade que o plano
+     * cobre.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada(u.id, u.nome, coalesce(sum(c.valor), 0))
+            from Cobranca c join c.assinatura.plano.unidades u
+            where c.status = 'PENDENTE'
+            and (c.assinatura.status = 'INADIMPLENTE'
+                 or (c.assinatura.status = 'ATIVA' and c.assinatura.dataVencimento < :hoje))
+            group by u.id, u.nome
+            """)
+    List<SomaAgrupada> somarInadimplenciaEmAbertoPorUnidade(LocalDate hoje);
 
     /**
      * Previsao de caixa do mes: cobrancas com vencimento dentro do
