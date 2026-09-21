@@ -4,6 +4,7 @@ import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,6 +14,7 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -268,4 +270,47 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             order by count(a) desc
             """)
     List<LinhaMotivoCancelamento> contarCancelamentosPorMotivo();
+
+    /**
+     * Matriculas ativas cujo aluno parou de aparecer: nunca fez um
+     * check-in liberado, ou o ultimo foi antes do limite. "Nunca fez"
+     * entra tambem — silencio total e pelo menos tao grave quanto um
+     * check-in antigo, e ficaria de fora de "ultimo < limite" porque a
+     * subconsulta devolve nulo, nao uma data pequena.
+     *
+     * Ordenado do parado ha mais tempo pro mais recente (nulls first: quem
+     * nunca apareceu e a prioridade maxima da secretaria).
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto(
+                       a.id, a.aluno.id, a.aluno.nome, a.plano.nome, a.dataVencimento,
+                       (select max(c.momento) from Checkin c where c.aluno = a.aluno and c.liberado = true))
+            from Assinatura a
+            where a.status = 'ATIVA'
+              and (
+                (select max(c.momento) from Checkin c where c.aluno = a.aluno and c.liberado = true) < :limite
+                or not exists (select 1 from Checkin c where c.aluno = a.aluno and c.liberado = true)
+              )
+            order by (select max(c.momento) from Checkin c where c.aluno = a.aluno and c.liberado = true) asc nulls first
+            """)
+    Page<LinhaAlunoInativoBruto> buscarInativasDesde(LocalDateTime limite, Pageable pageable);
+
+    /** Contagem da mesma janela de buscarInativasDesde, pro cabecalho do relatorio. */
+    @Query("""
+            select count(a) from Assinatura a
+            where a.status = 'ATIVA'
+              and (
+                (select max(c.momento) from Checkin c where c.aluno = a.aluno and c.liberado = true) < :limite
+                or not exists (select 1 from Checkin c where c.aluno = a.aluno and c.liberado = true)
+              )
+            """)
+    long countInativasDesde(LocalDateTime limite);
+
+    /** Quantas dessas nunca fizeram check-in nenhum — o caso mais grave do relatorio de inatividade. */
+    @Query("""
+            select count(a) from Assinatura a
+            where a.status = 'ATIVA'
+              and not exists (select 1 from Checkin c where c.aluno = a.aluno and c.liberado = true)
+            """)
+    long countAtivasSemCheckinNunca();
 }

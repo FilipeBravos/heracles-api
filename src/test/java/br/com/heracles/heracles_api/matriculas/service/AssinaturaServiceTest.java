@@ -11,6 +11,7 @@ import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
@@ -33,6 +34,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
@@ -671,6 +673,52 @@ class AssinaturaServiceTest {
         assertThat(linha.cobrancaPendenteId()).isNull();
         assertThat(linha.formaPagamento()).isNull();
         assertThat(linha.codigoSimulado()).isNull();
+    }
+
+    // ---------------------------------------------------------------
+    // Alerta de inatividade
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("O resumo de inatividade conta o total e quantos nunca fizeram check-in")
+    void resumoInatividadeContaTotalENuncaApareceram() {
+        given(repository.countInativasDesde(any())).willReturn(5L);
+        given(repository.countAtivasSemCheckinNunca()).willReturn(2L);
+
+        AssinaturaDtos.ResumoAlunosInativos resumo = service.resumoAlunosInativos(14);
+
+        assertThat(resumo.total()).isEqualTo(5L);
+        assertThat(resumo.nuncaFizeramCheckin()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("Quem ja fez check-in traz os dias parado, contados ate agora")
+    void alunosInativosCalculaDiasParado() {
+        LinhaAlunoInativoBruto bruta = new LinhaAlunoInativoBruto(
+                99L, 2L, "Marina Alves", "Mensal", LocalDate.now().plusDays(10),
+                LocalDateTime.now().minusDays(20));
+        given(repository.buscarInativasDesde(any(), any())).willReturn(new PageImpl<>(List.of(bruta)));
+
+        AssinaturaDtos.LinhaAlunoInativo linha =
+                service.alunosInativos(PageRequest.of(0, 20), 14).getContent().get(0);
+
+        assertThat(linha.assinaturaId()).isEqualTo(99L);
+        assertThat(linha.alunoNome()).isEqualTo("Marina Alves");
+        assertThat(linha.diasSemCheckin()).isEqualTo(20L);
+    }
+
+    @Test
+    @DisplayName("Quem nunca fez check-in nao tem dias contados — \"nunca\" e a informacao")
+    void alunosInativosNuncaApareceuDeixaDiasNulo() {
+        LinhaAlunoInativoBruto bruta = new LinhaAlunoInativoBruto(
+                99L, 2L, "Marina Alves", "Mensal", LocalDate.now().plusDays(10), null);
+        given(repository.buscarInativasDesde(any(), any())).willReturn(new PageImpl<>(List.of(bruta)));
+
+        AssinaturaDtos.LinhaAlunoInativo linha =
+                service.alunosInativos(PageRequest.of(0, 20), 14).getContent().get(0);
+
+        assertThat(linha.ultimoCheckin()).isNull();
+        assertThat(linha.diasSemCheckin()).isNull();
     }
 
     @Test

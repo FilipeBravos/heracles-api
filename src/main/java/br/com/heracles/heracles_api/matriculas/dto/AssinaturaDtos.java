@@ -376,4 +376,38 @@ public final class AssinaturaDtos {
             Response assinatura
     ) {
     }
+
+    /**
+     * Uma linha do alerta de inatividade: matricula ativa, mas o aluno
+     * parou de aparecer.
+     *
+     * `ultimoCheckin` e `diasSemCheckin` saem nulos quando o aluno nunca
+     * fez um check-in liberado — "nunca apareceu" e uma categoria a
+     * parte, mais grave que qualquer numero de dias.
+     */
+    public record LinhaAlunoInativo(
+            Long assinaturaId,
+            Long alunoId,
+            String alunoNome,
+            String planoNome,
+            LocalDate dataVencimento,
+            LocalDateTime ultimoCheckin,
+            Long diasSemCheckin
+    ) {
+        public static LinhaAlunoInativo de(LinhaAlunoInativoBruto bruta, LocalDateTime agora) {
+            Long dias = bruta.ultimoCheckin() != null
+                    ? ChronoUnit.DAYS.between(bruta.ultimoCheckin(), agora)
+                    : null;
+            return new LinhaAlunoInativo(
+                    bruta.assinaturaId(), bruta.alunoId(), bruta.alunoNome(), bruta.planoNome(),
+                    bruta.dataVencimento(), bruta.ultimoCheckin(), dias);
+        }
+    }
+
+    /** Cabecalho do alerta de inatividade: quantos estao parados, e quantos desses nunca apareceram. */
+    public record ResumoAlunosInativos(
+            long total,
+            long nuncaFizeramCheckin
+    ) {
+    }
 }
