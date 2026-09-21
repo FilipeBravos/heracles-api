@@ -241,20 +241,6 @@ public final class AssinaturaDtos {
     ) {
     }
 
-    /**
-     * O painel financeiro: o dinheiro, onde o painel de retencao mede
-     * alunos.
-     *
-     * `mrr` conta so quem esta ATIVA — e a receita recorrente saudavel.
-     * Pacote anual entra normalizado, porque `Plano.valorMensal` ja e o
-     * valor por mes por definicao, RECORRENTE ou PACOTE_ANUAL; nao ha
-     * conversao a fazer aqui. `inadimplenciaEmReais` e o dinheiro parado
-     * (vencido ou inadimplente) — de proposito fora do mrr, para as duas
-     * perguntas nao se misturarem num numero so. `projecaoDoMes` e a soma
-     * das cobrancas (pagas e pendentes) com vencimento dentro do mes
-     * corrente — uma previsao de caixa a partir de cobrancas reais, nao
-     * uma extrapolacao do mrr.
-     */
     /** Um ponto do grafico de ocupacao: quantos check-ins liberados nesta hora do dia. */
     public record PontoOcupacao(
             int hora,
@@ -284,6 +270,42 @@ public final class AssinaturaDtos {
     ) {
     }
 
+    /**
+     * Uma linha do detalhamento financeiro por unidade, no mes corrente.
+     *
+     * Mesmo espalhamento de LinhaChurn.porUnidade: uma assinatura de plano
+     * de rede conta o mrr (e a inadimplencia de suas cobrancas) inteiro em
+     * cada unidade que o plano cobre, entao a soma das linhas pode superar
+     * os totais do painel — a assinatura nunca pertenceu a uma unidade so.
+     * Funciona bem pra plano de unidade unica; pra plano de rede, e uma
+     * atribuicao aproximada, nao uma divisao exata.
+     */
+    public record LinhaFinanceiro(
+            Long unidadeId,
+            String unidadeNome,
+            BigDecimal mrr,
+            long assinaturasAtivas,
+            BigDecimal ticketMedio,
+            BigDecimal inadimplenciaEmReais
+    ) {
+    }
+
+    /**
+     * O painel financeiro: o dinheiro, onde o painel de retencao mede
+     * alunos.
+     *
+     * `mrr` conta so quem esta ATIVA — e a receita recorrente saudavel.
+     * Pacote anual entra normalizado, porque `Plano.valorMensal` ja e o
+     * valor por mes por definicao, RECORRENTE ou PACOTE_ANUAL; nao ha
+     * conversao a fazer aqui. `inadimplenciaEmReais` e o dinheiro parado
+     * (vencido ou inadimplente) — de proposito fora do mrr, para as duas
+     * perguntas nao se misturarem num numero so. `projecaoDoMes` e a soma
+     * das cobrancas (pagas e pendentes) com vencimento dentro do mes
+     * corrente — uma previsao de caixa a partir de cobrancas reais, nao
+     * uma extrapolacao do mrr. `porUnidade` segue o mesmo criterio do
+     * detalhamento de retencao: so aparece quem tem assinatura ativa
+     * agora, sem preencher com zero quem nao tem nenhuma.
+     */
     public record PainelFinanceiro(
             /** `yyyy-MM` do mes corrente — mesmo formato de PontoMensal.mes. */
             String mesReferencia,
@@ -291,7 +313,8 @@ public final class AssinaturaDtos {
             long assinaturasAtivas,
             BigDecimal ticketMedio,
             BigDecimal inadimplenciaEmReais,
-            BigDecimal projecaoDoMes
+            BigDecimal projecaoDoMes,
+            List<LinhaFinanceiro> porUnidade
     ) {
     }
 

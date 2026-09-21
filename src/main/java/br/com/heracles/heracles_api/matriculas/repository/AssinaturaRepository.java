@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -101,6 +102,21 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
      */
     @Query("select coalesce(sum(a.plano.valorMensal), 0) from Assinatura a where a.status = 'ATIVA'")
     BigDecimal somarMrr();
+
+    /**
+     * Mesma base de somarMrr, agrupada por unidade — mesmo espalhamento de
+     * contarAtivasPorUnidadeEm: uma assinatura de plano de rede conta o mrr
+     * inteiro em cada unidade que o plano cobre, entao a soma das linhas
+     * pode superar o mrr total do painel.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBruta(
+                       u.id, u.nome, coalesce(sum(a.plano.valorMensal), 0), count(a))
+            from Assinatura a join a.plano.unidades u
+            where a.status = 'ATIVA'
+            group by u.id, u.nome
+            """)
+    List<LinhaFinanceiroPorUnidadeBruta> somarMrrPorUnidade();
 
     /** Quem o lembrete automatico avisa no estagio INADIMPLENTE — o dedup de LembreteEnviado evita repetir. */
     @EntityGraph(attributePaths = {"aluno", "plano"})

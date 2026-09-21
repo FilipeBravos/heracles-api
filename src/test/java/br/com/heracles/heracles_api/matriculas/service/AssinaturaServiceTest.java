@@ -12,8 +12,10 @@ import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
+import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
@@ -534,6 +536,48 @@ class AssinaturaServiceTest {
         AssinaturaDtos.PainelFinanceiro painel = service.financeiro();
 
         assertThat(painel.ticketMedio()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("porUnidade junta mrr e inadimplencia por id, defaultando pra zero quem nao tem cobranca em aberto")
+    void financeiroPorUnidadeJuntaMrrEInadimplencia() {
+        given(repository.somarMrr()).willReturn(new BigDecimal("3000.00"));
+        given(repository.countByStatus(StatusAssinatura.ATIVA)).willReturn(10L);
+        given(cobrancaRepository.somarInadimplenciaEmAberto(any())).willReturn(new BigDecimal("500.00"));
+        given(cobrancaRepository.somarCobrancasNoPeriodo(any(), any())).willReturn(new BigDecimal("2800.00"));
+        given(repository.somarMrrPorUnidade()).willReturn(List.of(
+                new LinhaFinanceiroPorUnidadeBruta(1L, "Unidade Centro", new BigDecimal("2000.00"), 8L),
+                new LinhaFinanceiroPorUnidadeBruta(2L, "Unidade Norte", new BigDecimal("1000.00"), 2L)));
+        given(cobrancaRepository.somarInadimplenciaEmAbertoPorUnidade(any())).willReturn(
+                List.of(new SomaAgrupada(1L, "Unidade Centro", new BigDecimal("500.00"))));
+
+        List<AssinaturaDtos.LinhaFinanceiro> porUnidade = service.financeiro().porUnidade();
+
+        assertThat(porUnidade).hasSize(2);
+        // Maior mrr primeiro.
+        assertThat(porUnidade.get(0).unidadeNome()).isEqualTo("Unidade Centro");
+        assertThat(porUnidade.get(0).mrr()).isEqualByComparingTo("2000.00");
+        assertThat(porUnidade.get(0).ticketMedio()).isEqualByComparingTo("250.00");
+        assertThat(porUnidade.get(0).inadimplenciaEmReais()).isEqualByComparingTo("500.00");
+
+        assertThat(porUnidade.get(1).unidadeNome()).isEqualTo("Unidade Norte");
+        assertThat(porUnidade.get(1).inadimplenciaEmReais()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("Ticket medio por unidade tambem e zero em vez de dividir por zero, sem ativa nenhuma")
+    void financeiroPorUnidadeSemAtivasTicketMedioZero() {
+        given(repository.somarMrr()).willReturn(BigDecimal.ZERO);
+        given(repository.countByStatus(StatusAssinatura.ATIVA)).willReturn(0L);
+        given(cobrancaRepository.somarInadimplenciaEmAberto(any())).willReturn(BigDecimal.ZERO);
+        given(cobrancaRepository.somarCobrancasNoPeriodo(any(), any())).willReturn(BigDecimal.ZERO);
+        given(repository.somarMrrPorUnidade()).willReturn(
+                List.of(new LinhaFinanceiroPorUnidadeBruta(1L, "Unidade Centro", BigDecimal.ZERO, 0L)));
+
+        List<AssinaturaDtos.LinhaFinanceiro> porUnidade = service.financeiro().porUnidade();
+
+        assertThat(porUnidade).hasSize(1);
+        assertThat(porUnidade.get(0).ticketMedio()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     // ---------------------------------------------------------------

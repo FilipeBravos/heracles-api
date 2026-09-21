@@ -27,6 +27,7 @@ import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
+import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
@@ -211,7 +212,33 @@ public class AssinaturaService {
                 .somarCobrancasNoPeriodo(mesAtual.atDay(1), mesAtual.atEndOfMonth());
 
         return new AssinaturaDtos.PainelFinanceiro(
-                mesAtual.toString(), mrr, assinaturasAtivas, ticketMedio, inadimplenciaEmReais, projecaoDoMes);
+                mesAtual.toString(), mrr, assinaturasAtivas, ticketMedio, inadimplenciaEmReais, projecaoDoMes,
+                linhasFinanceiroPorUnidade());
+    }
+
+    /**
+     * Junta mrr/ativas por unidade com a inadimplencia por unidade, mesmo
+     * merge por id de linhasDeChurn — a lista de mrr e quem decide quais
+     * unidades aparecem, inadimplencia so completa quem ja esta nela.
+     */
+    private List<AssinaturaDtos.LinhaFinanceiro> linhasFinanceiroPorUnidade() {
+        Map<Long, BigDecimal> inadimplenciaPorUnidade = cobrancaRepository
+                .somarInadimplenciaEmAbertoPorUnidade(LocalDate.now()).stream()
+                .collect(Collectors.toMap(SomaAgrupada::id, SomaAgrupada::valor));
+
+        return repository.somarMrrPorUnidade().stream()
+                .map(grupo -> {
+                    BigDecimal ticketMedio = grupo.assinaturasAtivas() > 0
+                            ? grupo.mrr().divide(BigDecimal.valueOf(grupo.assinaturasAtivas()), 2, RoundingMode.HALF_UP)
+                            : BigDecimal.ZERO;
+                    BigDecimal inadimplencia = inadimplenciaPorUnidade.getOrDefault(grupo.unidadeId(), BigDecimal.ZERO);
+
+                    return new AssinaturaDtos.LinhaFinanceiro(
+                            grupo.unidadeId(), grupo.unidadeNome(), grupo.mrr(), grupo.assinaturasAtivas(),
+                            ticketMedio, inadimplencia);
+                })
+                .sorted((a, b) -> b.mrr().compareTo(a.mrr()))
+                .toList();
     }
 
     /**
