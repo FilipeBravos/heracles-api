@@ -188,6 +188,24 @@ public class NotificacaoService {
         return criadas;
     }
 
+    /**
+     * Avisa o aluno de que uma vaga surgiu na aula em que ele esperava e
+     * que ele foi inscrito automaticamente. Gerada na hora, pelo proprio
+     * cancelamento que abriu a vaga (AulaGrupoService) — nao pelo job
+     * diario, que so olha para tras uma vez por dia.
+     */
+    @Transactional
+    public void notificarVagaLiberada(Usuario aluno, Long aulaId, String nomeAula) {
+        Notificacao notificacao = new Notificacao();
+        notificacao.setDestinatario(aluno);
+        notificacao.setTipo(TipoNotificacao.VAGA_LIBERADA);
+        notificacao.setTitulo("Vaga liberada");
+        notificacao.setMensagem(
+                "Uma vaga surgiu na aula \"%s\" e voce foi inscrito(a) automaticamente.".formatted(nomeAula));
+        notificacao.setReferenciaId(aulaId);
+        repository.save(notificacao);
+    }
+
     private List<Usuario> secretariasAtivas() {
         return usuarioRepository.findByTipoPerfilAndStatus(TipoPerfil.SECRETARIA, StatusUsuario.ATIVO);
     }

@@ -13,6 +13,7 @@ import br.com.heracles.heracles_api.core.domain.Unidade;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.repository.UnidadeRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
+import br.com.heracles.heracles_api.core.service.NotificacaoService;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +46,7 @@ class AulaGrupoServiceTest {
     @Mock private AgendamentoPersonalRepository agendamentoPersonalRepository;
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private UnidadeRepository unidadeRepository;
+    @Mock private NotificacaoService notificacaoService;
 
     private AulaGrupoService service;
 
@@ -57,7 +59,7 @@ class AulaGrupoServiceTest {
     void preparar() {
         service = new AulaGrupoService(
                 repository, inscricaoRepository, agendamentoPersonalRepository, usuarioRepository,
-                unidadeRepository);
+                unidadeRepository, notificacaoService);
 
         professor = new Usuario();
         professor.setId(1L);
@@ -175,24 +177,31 @@ class AulaGrupoServiceTest {
     }
 
     @Test
-    @DisplayName("Aula lotada recusa nova inscricao")
-    void aulaLotadaRecusaInscricao() {
+    @DisplayName("Aula lotada manda para a fila de espera em vez de recusar")
+    void aulaLotadaEntraNaListaDeEspera() {
         AulaGrupo aula = aulaSalva(1);
         given(repository.findById(10L)).willReturn(Optional.of(aula));
         given(inscricaoRepository.countByAulaIdAndStatus(10L, StatusInscricao.INSCRITA)).willReturn(1L);
+        given(inscricaoRepository.countByAulaIdAndStatus(10L, StatusInscricao.EM_ESPERA)).willReturn(1L);
 
-        assertThatThrownBy(() -> service.inscrever(10L, 2L))
-                .isInstanceOf(RegraNegocioException.class)
-                .hasMessageContaining("lotada");
+        AulaGrupoDtos.ResultadoInscricao resultado = service.inscrever(10L, 2L);
+
+        assertThat(resultado.status()).isEqualTo(StatusInscricao.EM_ESPERA);
+        assertThat(resultado.posicaoEspera()).isEqualTo(1);
+
+        ArgumentCaptor<InscricaoAula> captor = ArgumentCaptor.forClass(InscricaoAula.class);
+        verify(inscricaoRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(StatusInscricao.EM_ESPERA);
     }
 
     @Test
-    @DisplayName("Aluno ja inscrito nao se inscreve de novo")
+    @DisplayName("Aluno ja inscrito ou na espera nao se inscreve de novo")
     void naoInscreveDuasVezes() {
         AulaGrupo aula = aulaSalva(15);
         given(repository.findById(10L)).willReturn(Optional.of(aula));
-        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(10L, 2L, StatusInscricao.INSCRITA))
-                .willReturn(Optional.of(new InscricaoAula()));
+        given(inscricaoRepository.existsByAulaIdAndAlunoIdAndStatusIn(
+                10L, 2L, List.of(StatusInscricao.INSCRITA, StatusInscricao.EM_ESPERA)))
+                .willReturn(true);
 
         assertThatThrownBy(() -> service.inscrever(10L, 2L))
                 .isInstanceOf(RegraNegocioException.class)
@@ -205,8 +214,9 @@ class AulaGrupoServiceTest {
         AulaGrupo aula = aulaSalva(15);
         given(repository.findById(10L)).willReturn(Optional.of(aula));
 
-        service.inscrever(10L, 2L);
+        AulaGrupoDtos.ResultadoInscricao resultado = service.inscrever(10L, 2L);
 
+        assertThat(resultado.status()).isEqualTo(StatusInscricao.INSCRITA);
         ArgumentCaptor<InscricaoAula> captor = ArgumentCaptor.forClass(InscricaoAula.class);
         verify(inscricaoRepository).save(captor.capture());
         assertThat(captor.getValue().getAluno()).isEqualTo(aluno);
@@ -229,11 +239,64 @@ class AulaGrupoServiceTest {
     @Test
     @DisplayName("Cancelar inscricao inexistente devolve 404")
     void cancelarInscricaoInexistente() {
-        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(10L, 2L, StatusInscricao.INSCRITA))
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatusIn(
+                10L, 2L, List.of(StatusInscricao.INSCRITA, StatusInscricao.EM_ESPERA)))
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.cancelarInscricao(10L, 2L))
                 .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("Cancelar uma vaga marcada promove quem espera ha mais tempo")
+    void cancelarPromoveDaEspera() {
+        AulaGrupo aula = aulaSalva(1);
+        aula.setId(10L);
+
+        InscricaoAula minhaInscricao = new InscricaoAula();
+        minhaInscricao.setAula(aula);
+        minhaInscricao.setAluno(aluno);
+        minhaInscricao.setStatus(StatusInscricao.INSCRITA);
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatusIn(
+                10L, 2L, List.of(StatusInscricao.INSCRITA, StatusInscricao.EM_ESPERA)))
+                .willReturn(Optional.of(minhaInscricao));
+
+        Usuario proximoDaFila = new Usuario();
+        proximoDaFila.setId(5L);
+        proximoDaFila.setNome("Bruno Espera");
+        InscricaoAula naFila = new InscricaoAula();
+        naFila.setAula(aula);
+        naFila.setAluno(proximoDaFila);
+        naFila.setStatus(StatusInscricao.EM_ESPERA);
+        given(inscricaoRepository.findByAulaIdAndStatusOrderByInscritoEmAsc(10L, StatusInscricao.EM_ESPERA))
+                .willReturn(List.of(naFila));
+
+        service.cancelarInscricao(10L, 2L);
+
+        assertThat(minhaInscricao.getStatus()).isEqualTo(StatusInscricao.CANCELADA);
+        assertThat(naFila.getStatus()).isEqualTo(StatusInscricao.INSCRITA);
+        verify(notificacaoService).notificarVagaLiberada(proximoDaFila, 10L, "Spinning");
+    }
+
+    @Test
+    @DisplayName("Cancelar a propria espera nao promove ninguem — nenhuma vaga foi liberada")
+    void cancelarEsperaNaoPromoveNinguem() {
+        AulaGrupo aula = aulaSalva(1);
+        aula.setId(10L);
+
+        InscricaoAula minhaEspera = new InscricaoAula();
+        minhaEspera.setAula(aula);
+        minhaEspera.setAluno(aluno);
+        minhaEspera.setStatus(StatusInscricao.EM_ESPERA);
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatusIn(
+                10L, 2L, List.of(StatusInscricao.INSCRITA, StatusInscricao.EM_ESPERA)))
+                .willReturn(Optional.of(minhaEspera));
+
+        service.cancelarInscricao(10L, 2L);
+
+        assertThat(minhaEspera.getStatus()).isEqualTo(StatusInscricao.CANCELADA);
+        verify(inscricaoRepository, org.mockito.Mockito.never())
+                .findByAulaIdAndStatusOrderByInscritoEmAsc(any(), any());
     }
 
     @Test
@@ -251,5 +314,30 @@ class AulaGrupoServiceTest {
 
         assertThat(resultado.getContent()).hasSize(1);
         assertThat(resultado.getContent().get(0).inscrito()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Listar para o aluno mostra a posicao dele na fila de espera")
+    void listarParaAlunoMostraPosicaoNaEspera() {
+        AulaGrupo aula = aulaSalva(1);
+        var pagina = new org.springframework.data.domain.PageImpl<>(List.of(aula));
+        given(repository.findByStatusAndDataHoraGreaterThanEqual(
+                org.mockito.ArgumentMatchers.eq(StatusAula.ATIVA), any(), any()))
+                .willReturn(pagina);
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(10L, 2L, StatusInscricao.INSCRITA))
+                .willReturn(Optional.empty());
+
+        InscricaoAula outroNaFila = new InscricaoAula();
+        outroNaFila.setAluno(new Usuario());
+        outroNaFila.getAluno().setId(9L);
+        InscricaoAula minhaEspera = new InscricaoAula();
+        minhaEspera.setAluno(aluno);
+        given(inscricaoRepository.findByAulaIdAndStatusOrderByInscritoEmAsc(10L, StatusInscricao.EM_ESPERA))
+                .willReturn(List.of(outroNaFila, minhaEspera));
+
+        var resultado = service.listarParaAluno("carla@ex.com", org.springframework.data.domain.PageRequest.of(0, 10));
+
+        assertThat(resultado.getContent().get(0).inscrito()).isFalse();
+        assertThat(resultado.getContent().get(0).posicaoEspera()).isEqualTo(2);
     }
 }

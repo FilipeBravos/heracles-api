@@ -3,16 +3,20 @@ package br.com.heracles.heracles_api.operacoes.controller;
 import br.com.heracles.heracles_api.operacoes.dto.EquipamentoDtos;
 import br.com.heracles.heracles_api.operacoes.service.EquipamentoService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 
+@Validated
 @RestController
 @RequestMapping("/api/equipamentos")
 public class EquipamentoController {
@@ -32,6 +36,13 @@ public class EquipamentoController {
     @GetMapping("/{id}/chamados")
     public List<EquipamentoDtos.ChamadoResponse> historico(@PathVariable Long id) {
         return service.historico(id);
+    }
+
+    /** Painel de manutencao: custo, tempo medio de resolucao, equipamentos mais problematicos e comparacao por unidade. */
+    @GetMapping("/relatorio")
+    public EquipamentoDtos.PainelManutencao relatorio(
+            @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
+        return service.relatorio(dias);
     }
 
     @PostMapping

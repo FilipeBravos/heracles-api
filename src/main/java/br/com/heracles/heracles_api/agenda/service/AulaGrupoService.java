@@ -14,6 +14,7 @@ import br.com.heracles.heracles_api.core.domain.Unidade;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.repository.UnidadeRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
+import br.com.heracles.heracles_api.core.service.NotificacaoService;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import org.springframework.data.domain.Page;
@@ -22,10 +23,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Aulas em grupo: agendamento pelo professor/administracao, marcacao de
  * vaga pelo proprio aluno (self-service) ou pela secretaria em nome dele.
+ * Turma cheia nao recusa: forma fila de espera, que anda sozinha quando
+ * alguem com vaga cancela.
  */
 @Service
 public class AulaGrupoService {
@@ -35,36 +39,40 @@ public class AulaGrupoService {
     private final AgendamentoPersonalRepository agendamentoPersonalRepository;
     private final UsuarioRepository usuarioRepository;
     private final UnidadeRepository unidadeRepository;
+    private final NotificacaoService notificacaoService;
 
     public AulaGrupoService(AulaGrupoRepository repository,
                             InscricaoAulaRepository inscricaoRepository,
                             AgendamentoPersonalRepository agendamentoPersonalRepository,
                             UsuarioRepository usuarioRepository,
-                            UnidadeRepository unidadeRepository) {
+                            UnidadeRepository unidadeRepository,
+                            NotificacaoService notificacaoService) {
         this.repository = repository;
         this.inscricaoRepository = inscricaoRepository;
         this.agendamentoPersonalRepository = agendamentoPersonalRepository;
         this.usuarioRepository = usuarioRepository;
         this.unidadeRepository = unidadeRepository;
+        this.notificacaoService = notificacaoService;
     }
 
-    /** Agenda operacional: aulas futuras ativas, com a ocupacao de cada uma. */
+    /** Agenda operacional: aulas futuras ativas, com a ocupacao e a fila de espera de cada uma. */
     @Transactional(readOnly = true)
     public Page<AulaGrupoDtos.Response> listar(Pageable pageable) {
         return repository.findByStatusAndDataHoraGreaterThanEqual(StatusAula.ATIVA, LocalDateTime.now(), pageable)
-                .map(aula -> AulaGrupoDtos.Response.de(aula, vagasOcupadas(aula.getId())));
+                .map(aula -> AulaGrupoDtos.Response.de(aula, vagasOcupadas(aula.getId()), vagasEspera(aula.getId())));
     }
 
-    /** A mesma agenda, sob o olhar do aluno: se ele ja esta inscrito em cada uma. */
+    /** A mesma agenda, sob o olhar do aluno: se ele ja esta inscrito, ou sua posicao na espera. */
     @Transactional(readOnly = true)
     public Page<AulaGrupoDtos.ParaAluno> listarParaAluno(String emailAutenticado, Pageable pageable) {
         Usuario eu = eu(emailAutenticado);
         return repository.findByStatusAndDataHoraGreaterThanEqual(StatusAula.ATIVA, LocalDateTime.now(), pageable)
-                .map(aula -> AulaGrupoDtos.ParaAluno.de(
-                        aula,
-                        vagasOcupadas(aula.getId()),
-                        inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(
-                                aula.getId(), eu.getId(), StatusInscricao.INSCRITA).isPresent()));
+                .map(aula -> {
+                    boolean inscrito = inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(
+                            aula.getId(), eu.getId(), StatusInscricao.INSCRITA).isPresent();
+                    Integer posicaoEspera = inscrito ? null : posicaoNaEspera(aula.getId(), eu.getId());
+                    return AulaGrupoDtos.ParaAluno.de(aula, vagasOcupadas(aula.getId()), inscrito, posicaoEspera);
+                });
     }
 
     @Transactional
@@ -92,25 +100,28 @@ public class AulaGrupoService {
         aula.setCapacidadeMaxima(request.capacidadeMaxima());
         aula.setStatus(StatusAula.ATIVA);
 
-        return AulaGrupoDtos.Response.de(repository.save(aula), 0);
+        return AulaGrupoDtos.Response.de(repository.save(aula), 0, 0);
     }
 
     @Transactional
     public AulaGrupoDtos.Response cancelar(Long aulaId) {
         AulaGrupo aula = buscar(aulaId);
         aula.setStatus(StatusAula.CANCELADA);
-        return AulaGrupoDtos.Response.de(aula, vagasOcupadas(aulaId));
+        return AulaGrupoDtos.Response.de(aula, vagasOcupadas(aulaId), vagasEspera(aulaId));
     }
 
     /** Marca a vaga do proprio aluno autenticado — o self-service do app. */
     @Transactional
-    public void inscreverEu(String emailAutenticado, Long aulaId) {
-        inscrever(aulaId, eu(emailAutenticado).getId());
+    public AulaGrupoDtos.ResultadoInscricao inscreverEu(String emailAutenticado, Long aulaId) {
+        return inscrever(aulaId, eu(emailAutenticado).getId());
     }
 
-    /** Marca a vaga em nome de outro aluno — o balcao, para quem liga ou passa sem o app. */
+    /**
+     * Marca a vaga em nome de outro aluno — o balcao, para quem liga ou
+     * passa sem o app. Turma cheia nao recusa: entra na fila de espera.
+     */
     @Transactional
-    public void inscrever(Long aulaId, Long alunoId) {
+    public AulaGrupoDtos.ResultadoInscricao inscrever(Long aulaId, Long alunoId) {
         AulaGrupo aula = buscar(aulaId);
         if (aula.getStatus() != StatusAula.ATIVA) {
             throw new RegraNegocioException("Esta aula foi cancelada.");
@@ -126,20 +137,26 @@ public class AulaGrupoService {
                     "\"%s\" nao esta cadastrado(a) como aluno.".formatted(aluno.getNome()));
         }
 
-        if (inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(aulaId, alunoId, StatusInscricao.INSCRITA)
-                .isPresent()) {
-            throw new RegraNegocioException("%s ja esta inscrito(a) nesta aula.".formatted(aluno.getNome()));
-        }
-
-        if (vagasOcupadas(aulaId) >= aula.getCapacidadeMaxima()) {
-            throw new RegraNegocioException("Esta aula esta lotada.");
+        if (inscricaoRepository.existsByAulaIdAndAlunoIdAndStatusIn(
+                aulaId, alunoId, List.of(StatusInscricao.INSCRITA, StatusInscricao.EM_ESPERA))) {
+            throw new RegraNegocioException(
+                    "%s ja esta inscrito(a) ou na lista de espera desta aula.".formatted(aluno.getNome()));
         }
 
         InscricaoAula inscricao = new InscricaoAula();
         inscricao.setAula(aula);
         inscricao.setAluno(aluno);
-        inscricao.setStatus(StatusInscricao.INSCRITA);
+
+        if (vagasOcupadas(aulaId) < aula.getCapacidadeMaxima()) {
+            inscricao.setStatus(StatusInscricao.INSCRITA);
+            inscricaoRepository.save(inscricao);
+            return AulaGrupoDtos.ResultadoInscricao.inscrito();
+        }
+
+        inscricao.setStatus(StatusInscricao.EM_ESPERA);
         inscricaoRepository.save(inscricao);
+        int posicao = (int) vagasEspera(aulaId);
+        return AulaGrupoDtos.ResultadoInscricao.emEspera(posicao);
     }
 
     @Transactional
@@ -147,16 +164,55 @@ public class AulaGrupoService {
         cancelarInscricao(aulaId, eu(emailAutenticado).getId());
     }
 
+    /**
+     * Cancela a inscricao (marcada ou em espera). Quem estava com vaga
+     * marcada libera essa vaga: quem espera ha mais tempo entra na hora,
+     * sem precisar de ninguem reabrir a tela.
+     */
     @Transactional
     public void cancelarInscricao(Long aulaId, Long alunoId) {
         InscricaoAula inscricao = inscricaoRepository
-                .findByAulaIdAndAlunoIdAndStatus(aulaId, alunoId, StatusInscricao.INSCRITA)
+                .findByAulaIdAndAlunoIdAndStatusIn(
+                        aulaId, alunoId, List.of(StatusInscricao.INSCRITA, StatusInscricao.EM_ESPERA))
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Inscricao nao encontrada."));
+
+        boolean liberouVaga = inscricao.getStatus() == StatusInscricao.INSCRITA;
         inscricao.cancelar(LocalDateTime.now());
+
+        if (liberouVaga) {
+            promoverDaEspera(inscricao.getAula());
+        }
+    }
+
+    /** Promove quem espera ha mais tempo e avisa — chamado so quando uma vaga marcada acaba de se abrir. */
+    private void promoverDaEspera(AulaGrupo aula) {
+        inscricaoRepository.findByAulaIdAndStatusOrderByInscritoEmAsc(aula.getId(), StatusInscricao.EM_ESPERA)
+                .stream()
+                .findFirst()
+                .ifPresent(proximo -> {
+                    proximo.setStatus(StatusInscricao.INSCRITA);
+                    notificacaoService.notificarVagaLiberada(proximo.getAluno(), aula.getId(), aula.getNome());
+                });
+    }
+
+    /** Posicao (1-based) do aluno na fila de espera, ou null se ele nao esta nela. */
+    private Integer posicaoNaEspera(Long aulaId, Long alunoId) {
+        List<InscricaoAula> fila =
+                inscricaoRepository.findByAulaIdAndStatusOrderByInscritoEmAsc(aulaId, StatusInscricao.EM_ESPERA);
+        for (int i = 0; i < fila.size(); i++) {
+            if (fila.get(i).getAluno().getId().equals(alunoId)) {
+                return i + 1;
+            }
+        }
+        return null;
     }
 
     private long vagasOcupadas(Long aulaId) {
         return inscricaoRepository.countByAulaIdAndStatus(aulaId, StatusInscricao.INSCRITA);
+    }
+
+    private long vagasEspera(Long aulaId) {
+        return inscricaoRepository.countByAulaIdAndStatus(aulaId, StatusInscricao.EM_ESPERA);
     }
 
     private AulaGrupo buscar(Long aulaId) {

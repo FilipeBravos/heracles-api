@@ -5,6 +5,9 @@ import br.com.heracles.heracles_api.core.repository.UnidadeRepository;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.operacoes.domain.*;
 import br.com.heracles.heracles_api.operacoes.dto.EquipamentoDtos;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaEquipamentoProblematico;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPorUnidade;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaTempoResolucao;
 import br.com.heracles.heracles_api.operacoes.repository.ChamadoManutencaoRepository;
 import br.com.heracles.heracles_api.operacoes.repository.EquipamentoRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,11 +20,14 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 
 @ExtendWith(MockitoExtension.class)
@@ -129,5 +135,53 @@ class EquipamentoServiceTest {
         // Renomear um aparelho não pode devolvê-lo à operação por acidente.
         assertThat(esteira.getNome()).isEqualTo("Esteira 03 - Profissional");
         assertThat(esteira.getStatusAtual()).isEqualTo(StatusEquipamento.EM_MANUTENCAO);
+    }
+
+    // ---------------------------------------------------------------
+    // Relatorio de manutencao
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("O tempo medio de resolucao e a media das duracoes entre abertura e resolucao")
+    void relatorioCalculaTempoMedioDeResolucao() {
+        given(chamadoRepository.countByDataChamadoAfter(any())).willReturn(3L);
+        given(chamadoRepository.countByDataChamadoAfterAndStatus(any(), eq(StatusChamado.ABERTO))).willReturn(1L);
+        given(chamadoRepository.custoTotalDesde(any())).willReturn(new BigDecimal("980.00"));
+        given(chamadoRepository.temposResolucaoDesde(any())).willReturn(List.of(
+                new LinhaTempoResolucao(LocalDateTime.of(2026, 1, 1, 8, 0), LocalDateTime.of(2026, 1, 1, 12, 0)),
+                new LinhaTempoResolucao(LocalDateTime.of(2026, 1, 2, 8, 0), LocalDateTime.of(2026, 1, 3, 8, 0))));
+        given(chamadoRepository.equipamentosProblematicosDesde(any(), any())).willReturn(
+                List.of(new LinhaEquipamentoProblematico(7L, "Esteira 03", "Unidade Centro", 2L, new BigDecimal("980.00"))));
+        given(chamadoRepository.manutencaoPorUnidadeDesde(any())).willReturn(
+                List.of(new LinhaManutencaoPorUnidade(1L, "Unidade Centro", 2L, new BigDecimal("980.00"))));
+
+        EquipamentoDtos.PainelManutencao relatorio = service.relatorio(90);
+
+        assertThat(relatorio.dias()).isEqualTo(90);
+        assertThat(relatorio.quantidadeChamados()).isEqualTo(3L);
+        assertThat(relatorio.quantidadeAbertos()).isEqualTo(1L);
+        assertThat(relatorio.custoTotal()).isEqualByComparingTo("980.00");
+        // (4h + 24h) / 2 = 14h
+        assertThat(relatorio.tempoMedioResolucaoHoras()).isEqualByComparingTo("14.0");
+        assertThat(relatorio.maisProblematicos()).hasSize(1);
+        assertThat(relatorio.maisProblematicos().get(0).equipamentoNome()).isEqualTo("Esteira 03");
+        assertThat(relatorio.porUnidade()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Sem chamado resolvido no periodo, o tempo medio e zero em vez de dividir por zero")
+    void relatorioSemChamadoResolvidoTempoMedioZero() {
+        given(chamadoRepository.countByDataChamadoAfter(any())).willReturn(0L);
+        given(chamadoRepository.countByDataChamadoAfterAndStatus(any(), eq(StatusChamado.ABERTO))).willReturn(0L);
+        given(chamadoRepository.custoTotalDesde(any())).willReturn(BigDecimal.ZERO);
+        given(chamadoRepository.temposResolucaoDesde(any())).willReturn(List.of());
+        given(chamadoRepository.equipamentosProblematicosDesde(any(), any())).willReturn(List.of());
+        given(chamadoRepository.manutencaoPorUnidadeDesde(any())).willReturn(List.of());
+
+        EquipamentoDtos.PainelManutencao relatorio = service.relatorio(90);
+
+        assertThat(relatorio.tempoMedioResolucaoHoras()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(relatorio.maisProblematicos()).isEmpty();
+        assertThat(relatorio.porUnidade()).isEmpty();
     }
 }

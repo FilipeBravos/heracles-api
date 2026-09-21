@@ -36,11 +36,15 @@ public class AulaGrupoController {
         return service.cancelar(id);
     }
 
-    /** A secretaria marca a vaga em nome do aluno — quem liga ou passa no balcao sem usar o app. */
+    /**
+     * A secretaria marca a vaga em nome do aluno — quem liga ou passa no
+     * balcao sem usar o app. A resposta diz se entrou direto ou foi para
+     * a fila de espera, ja que a turma cheia nao recusa mais.
+     */
     @PostMapping("/{id}/inscricoes")
-    public ResponseEntity<Void> inscrever(@PathVariable Long id, @RequestBody @Valid AulaGrupoDtos.Marcar request) {
-        service.inscrever(id, request.alunoId());
-        return ResponseEntity.noContent().build();
+    public AulaGrupoDtos.ResultadoInscricao inscrever(
+            @PathVariable Long id, @RequestBody @Valid AulaGrupoDtos.Marcar request) {
+        return service.inscrever(id, request.alunoId());
     }
 
     @DeleteMapping("/{id}/inscricoes/{alunoId}")
