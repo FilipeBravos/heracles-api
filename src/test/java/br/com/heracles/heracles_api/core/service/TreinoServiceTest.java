@@ -3,10 +3,14 @@ package br.com.heracles.heracles_api.core.service;
 import br.com.heracles.heracles_api.core.domain.Exercicio;
 import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Treino;
+import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.dto.LinhaAlunoSemFicha;
+import br.com.heracles.heracles_api.core.dto.ResumoAlunosSemFicha;
 import br.com.heracles.heracles_api.core.dto.TreinoRequest;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
+import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +19,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -22,6 +28,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 /** Reconciliacao dos exercicios de uma ficha durante a edicao. */
@@ -33,6 +40,9 @@ class TreinoServiceTest {
 
     @Mock
     private HistoricoTreinoAlunoRepository historicoTreinoRepository;
+
+    @Mock
+    private UsuarioRepository usuarioRepository;
 
     @InjectMocks
     private TreinoService service;
@@ -160,5 +170,39 @@ class TreinoServiceTest {
         // apagada — o Hibernate recusa a transacao se uma entidade que esta
         // sendo atualizada ainda apontar para outra que esta sendo removida.
         assertThat(aberto.getTreino()).isNull();
+    }
+
+    // ---------------------------------------------------------------
+    // Alerta de alunos sem ficha de treino
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("O resumo repassa a contagem do repositorio")
+    void resumoAlunosSemFichaRepassaContagem() {
+        given(usuarioRepository.countAlunosSemFichaDeTreino()).willReturn(4L);
+
+        ResumoAlunosSemFicha resumo = service.resumoAlunosSemFicha();
+
+        assertThat(resumo.total()).isEqualTo(4L);
+    }
+
+    @Test
+    @DisplayName("O alerta traz o aluno da consulta, mapeado para a linha")
+    void alunosSemFichaMapeiaLinha() {
+        Usuario aluno = new Usuario();
+        aluno.setId(7L);
+        aluno.setNome("Diego Ramos");
+        aluno.setEmail("diego@ex.com");
+        aluno.setTelefone("11999990000");
+        aluno.setDataCadastro(LocalDateTime.now().minusDays(40));
+        given(usuarioRepository.buscarAlunosSemFichaDeTreino(any()))
+                .willReturn(new PageImpl<>(List.of(aluno)));
+
+        LinhaAlunoSemFicha linha = service.alunosSemFicha(PageRequest.of(0, 20)).getContent().get(0);
+
+        assertThat(linha.alunoId()).isEqualTo(7L);
+        assertThat(linha.alunoNome()).isEqualTo("Diego Ramos");
+        assertThat(linha.email()).isEqualTo("diego@ex.com");
+        assertThat(linha.telefone()).isEqualTo("11999990000");
     }
 }
