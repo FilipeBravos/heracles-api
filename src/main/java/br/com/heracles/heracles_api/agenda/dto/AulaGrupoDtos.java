@@ -1,11 +1,14 @@
 package br.com.heracles.heracles_api.agenda.dto;
 
 import br.com.heracles.heracles_api.agenda.domain.AulaGrupo;
+import br.com.heracles.heracles_api.agenda.domain.InscricaoAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import jakarta.validation.constraints.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public final class AulaGrupoDtos {
 
@@ -121,5 +124,35 @@ public final class AulaGrupoDtos {
         public static ResultadoInscricao emEspera(int posicao) {
             return new ResultadoInscricao(StatusInscricao.EM_ESPERA, posicao);
         }
+    }
+
+    /** Uma vaga marcada no roster da aula — o que o professor confere pra confirmar presenca. */
+    public record LinhaPresenca(Long alunoId, String alunoNome, Boolean presente) {
+        public static LinhaPresenca de(InscricaoAula inscricao) {
+            return new LinhaPresenca(
+                    inscricao.getAluno().getId(), inscricao.getAluno().getNome(), inscricao.getPresente());
+        }
+    }
+
+    /** Corpo da confirmacao de presenca — quem esteve la e quem sabe. */
+    public record ConfirmarPresenca(
+            @NotNull(message = "Informe se o aluno compareceu")
+            Boolean presente
+    ) {
+    }
+
+    /**
+     * O relatorio de faltas: taxa de comparecimento geral e o ranking de
+     * quem mais falta — a mesma pergunta de "avaliacao por professor",
+     * mas do lado de quem marca a vaga e nao aparece.
+     */
+    public record PainelPresenca(
+            int dias,
+            long totalConfirmadas,
+            long totalFaltas,
+            BigDecimal taxaComparecimento,
+            /** Do que mais falta pro que menos, limitado aos top 10. */
+            List<LinhaFaltaAluno> maisFaltosos
+    ) {
     }
 }

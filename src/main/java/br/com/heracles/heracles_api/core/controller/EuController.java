@@ -162,6 +162,26 @@ public class EuController {
     }
 
     /**
+     * O roster da aula para o professor confirmar presenca — so o
+     * professor que a deu enxerga, do jeito que so ele confirma sessao de
+     * personal realizada.
+     */
+    @GetMapping("/aulas/{id}/inscricoes")
+    public List<AulaGrupoDtos.LinhaPresenca> inscricoesDaAula(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        return aulaGrupoService.listarInscricoesEu(jwt.getSubject(), id);
+    }
+
+    /** So o professor que deu a aula confirma quem compareceu — e so depois que ela aconteceu. */
+    @PutMapping("/aulas/{id}/inscricoes/{alunoId}/presenca")
+    public ResponseEntity<Void> confirmarPresenca(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable Long id, @PathVariable Long alunoId,
+            @RequestBody @Valid AulaGrupoDtos.ConfirmarPresenca request) {
+        aulaGrupoService.confirmarPresencaEu(jwt.getSubject(), id, alunoId, request.presente());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * As sessoes de personal de quem esta autenticado. Agendar e cancelar
      * continuam sendo a secretaria, no balcao — mas confirmar que a propria
      * sessao aconteceu (professor) e avaliar uma ja realizada (aluno) sao
