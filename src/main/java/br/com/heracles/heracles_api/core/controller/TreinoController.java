@@ -1,5 +1,7 @@
 package br.com.heracles.heracles_api.core.controller;
 
+import br.com.heracles.heracles_api.core.dto.LinhaAlunoSemFicha;
+import br.com.heracles.heracles_api.core.dto.ResumoAlunosSemFicha;
 import br.com.heracles.heracles_api.core.dto.TreinoRequest;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.service.TreinoService;
@@ -55,5 +57,21 @@ public class TreinoController {
     public ResponseEntity<Void> deletar(@PathVariable Long id) {
         service.deletar(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Cabecalho do alerta: quantos alunos com matricula ativa nunca receberam ficha de treino. */
+    @GetMapping("/alunos-sem-ficha/resumo")
+    public ResumoAlunosSemFicha resumoAlunosSemFicha() {
+        return service.resumoAlunosSemFicha();
+    }
+
+    /**
+     * O alerta de cobertura: alunos com matricula ativa que nunca
+     * receberam uma ficha de treino.
+     */
+    @GetMapping("/alunos-sem-ficha")
+    public Page<LinhaAlunoSemFicha> alunosSemFicha(
+            @PageableDefault(size = 20, sort = "dataCadastro", direction = Sort.Direction.ASC) Pageable pageable) {
+        return service.alunosSemFicha(pageable);
     }
 }

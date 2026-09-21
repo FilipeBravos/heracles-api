@@ -2,10 +2,13 @@ package br.com.heracles.heracles_api.core.service;
 
 import br.com.heracles.heracles_api.core.domain.Exercicio;
 import br.com.heracles.heracles_api.core.domain.Treino;
+import br.com.heracles.heracles_api.core.dto.LinhaAlunoSemFicha;
+import br.com.heracles.heracles_api.core.dto.ResumoAlunosSemFicha;
 import br.com.heracles.heracles_api.core.dto.TreinoRequest;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
 import br.com.heracles.heracles_api.core.repository.HistoricoTreinoAlunoRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
+import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -25,10 +28,13 @@ public class TreinoService {
 
     private final TreinoRepository repository;
     private final HistoricoTreinoAlunoRepository historicoTreinoRepository;
+    private final UsuarioRepository usuarioRepository;
 
-    public TreinoService(TreinoRepository repository, HistoricoTreinoAlunoRepository historicoTreinoRepository) {
+    public TreinoService(TreinoRepository repository, HistoricoTreinoAlunoRepository historicoTreinoRepository,
+                         UsuarioRepository usuarioRepository) {
         this.repository = repository;
         this.historicoTreinoRepository = historicoTreinoRepository;
+        this.usuarioRepository = usuarioRepository;
     }
 
     @Transactional(readOnly = true)
@@ -156,5 +162,21 @@ public class TreinoService {
     private Treino carregar(Long id) {
         return repository.findWithExerciciosById(Objects.requireNonNull(id))
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Treino", id));
+    }
+
+    /** Cabecalho do alerta: quantos alunos com matricula ativa nunca receberam ficha de treino. */
+    @Transactional(readOnly = true)
+    public ResumoAlunosSemFicha resumoAlunosSemFicha() {
+        return new ResumoAlunosSemFicha(usuarioRepository.countAlunosSemFichaDeTreino());
+    }
+
+    /**
+     * O alerta em si: alunos com matricula ativa que nunca receberam uma
+     * ficha — indicador antecedente de qualidade de atendimento, nao um
+     * relatorio do que ja aconteceu.
+     */
+    @Transactional(readOnly = true)
+    public Page<LinhaAlunoSemFicha> alunosSemFicha(Pageable pageable) {
+        return usuarioRepository.buscarAlunosSemFichaDeTreino(pageable).map(LinhaAlunoSemFicha::de);
     }
 }

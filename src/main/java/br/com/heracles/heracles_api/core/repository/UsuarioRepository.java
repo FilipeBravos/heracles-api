@@ -67,4 +67,25 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
               and function('date_part', 'day', u.dataNascimento) = :dia
             """)
     List<Usuario> buscarAniversariantesDoDia(int mes, int dia);
+
+    /**
+     * Alunos com matricula ativa que nunca receberam uma ficha de treino —
+     * pagam, mas nunca foram "recebidos" de verdade pelo treino. Mesma
+     * logica de buscarAlunosSemAnamnese, mas a pergunta e sobre prescricao,
+     * nao sobre o formulario de entrada.
+     */
+    @Query("""
+            select u from Usuario u
+            where u.tipoPerfil = 'ALUNO' and u.treinos is empty
+              and exists (select 1 from Assinatura a where a.aluno = u and a.status = 'ATIVA')
+            """)
+    Page<Usuario> buscarAlunosSemFichaDeTreino(Pageable pageable);
+
+    /** Contagem da mesma janela de buscarAlunosSemFichaDeTreino, pro cabecalho do alerta. */
+    @Query("""
+            select count(u) from Usuario u
+            where u.tipoPerfil = 'ALUNO' and u.treinos is empty
+              and exists (select 1 from Assinatura a where a.aluno = u and a.status = 'ATIVA')
+            """)
+    long countAlunosSemFichaDeTreino();
 }
