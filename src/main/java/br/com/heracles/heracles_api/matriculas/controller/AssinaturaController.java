@@ -147,6 +147,27 @@ public class AssinaturaController {
         return service.inadimplencia(pageable, diasParaVencer);
     }
 
+    /** Cabecalho do alerta de inatividade: quantos alunos com matricula ativa pararam de aparecer. */
+    @GetMapping("/inatividade/resumo")
+    public AssinaturaDtos.ResumoAlunosInativos resumoAlunosInativos(
+            @RequestParam(defaultValue = "" + AssinaturaService.DIAS_INATIVIDADE_PADRAO)
+            @Min(1) @Max(180) int diasSemCheckin) {
+        return service.resumoAlunosInativos(diasSemCheckin);
+    }
+
+    /**
+     * O alerta de inatividade: matricula ativa, mas o aluno parou de
+     * fazer check-in — indicador antecedente pra secretaria agir antes
+     * do cancelamento, nao um retrato do que ja aconteceu.
+     */
+    @GetMapping("/inatividade")
+    public Page<AssinaturaDtos.LinhaAlunoInativo> alunosInativos(
+            @PageableDefault(size = 20) Pageable pageable,
+            @RequestParam(defaultValue = "" + AssinaturaService.DIAS_INATIVIDADE_PADRAO)
+            @Min(1) @Max(180) int diasSemCheckin) {
+        return service.alunosInativos(pageable, diasSemCheckin);
+    }
+
     @PostMapping
     public ResponseEntity<AssinaturaDtos.Response> matricular(
             @RequestBody @Valid AssinaturaDtos.Matricular request, UriComponentsBuilder uriBuilder) {

@@ -68,6 +68,13 @@ public class AssinaturaService {
      */
     public static final int DIAS_VENCE_EM_BREVE_PADRAO = 7;
 
+    /**
+     * Janela padrao do alerta de inatividade — tempo o bastante pra nao
+     * confundir "vai pouco essa semana" com "parou de vir", curto o
+     * bastante pra secretaria agir antes do cancelamento.
+     */
+    public static final int DIAS_INATIVIDADE_PADRAO = 14;
+
     private final AssinaturaRepository repository;
     private final PlanoRepository planoRepository;
     private final UsuarioRepository usuarioRepository;
@@ -475,6 +482,33 @@ public class AssinaturaService {
         return pagina.map(assinatura -> AssinaturaDtos.LinhaInadimplencia.de(
                 assinatura, cobrancasPendentes.get(assinatura.getId()),
                 ultimoLembretePorAssinatura.get(assinatura.getId()), hoje));
+    }
+
+    /**
+     * Cabecalho do alerta de inatividade: quantas matriculas ativas tem
+     * aluno parado, e quantas dessas nunca fizeram check-in nenhum.
+     */
+    @Transactional(readOnly = true)
+    public AssinaturaDtos.ResumoAlunosInativos resumoAlunosInativos(int diasSemCheckin) {
+        LocalDateTime limite = LocalDateTime.now().minusDays(diasSemCheckin);
+        return new AssinaturaDtos.ResumoAlunosInativos(
+                repository.countInativasDesde(limite),
+                repository.countAtivasSemCheckinNunca());
+    }
+
+    /**
+     * O alerta de inatividade em si: matriculas ativas cujo aluno nunca
+     * fez check-in liberado, ou parou ha mais dias do que a janela
+     * permite — indicador antecedente, ao contrario do painel de
+     * retencao, que so ve o churn depois que a assinatura ja foi
+     * cancelada.
+     */
+    @Transactional(readOnly = true)
+    public Page<AssinaturaDtos.LinhaAlunoInativo> alunosInativos(Pageable pageable, int diasSemCheckin) {
+        LocalDateTime agora = LocalDateTime.now();
+        LocalDateTime limite = agora.minusDays(diasSemCheckin);
+        return repository.buscarInativasDesde(limite, pageable)
+                .map(bruta -> AssinaturaDtos.LinhaAlunoInativo.de(bruta, agora));
     }
 
     /**
