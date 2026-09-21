@@ -45,7 +45,10 @@ public final class AgendamentoPersonalDtos {
             LocalDateTime dataHora,
             int duracaoMinutos,
             String observacoes,
-            StatusAgendamento status
+            StatusAgendamento status,
+            /** Nula ate o aluno avaliar — so possivel depois de REALIZADA. */
+            Integer notaAvaliacao,
+            String comentarioAvaliacao
     ) {
         public static Response de(AgendamentoPersonal sessao) {
             return new Response(
@@ -59,8 +62,27 @@ public final class AgendamentoPersonalDtos {
                     sessao.getDataHora(),
                     sessao.getDuracaoMinutos(),
                     sessao.getObservacoes(),
-                    sessao.getStatus()
+                    sessao.getStatus(),
+                    sessao.getNotaAvaliacao(),
+                    sessao.getComentarioAvaliacao()
             );
         }
+    }
+
+    /**
+     * A avaliacao que o aluno envia depois da sessao realizada — a mesma
+     * pergunta que o motivo de cancelamento faz de outro jeito, mas aqui o
+     * aluno ainda esta engajado, entao a taxa de resposta tende a ser
+     * melhor que numa pesquisa pos-cancelamento.
+     */
+    public record Avaliar(
+            @NotNull(message = "Informe a nota")
+            @Min(value = 1, message = "A nota minima e 1")
+            @Max(value = 5, message = "A nota maxima e 5")
+            Integer nota,
+
+            @Size(max = 500, message = "Comentario longo demais")
+            String comentario
+    ) {
     }
 }

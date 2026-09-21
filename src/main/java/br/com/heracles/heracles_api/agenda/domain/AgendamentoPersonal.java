@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.agenda.domain;
 
 import br.com.heracles.heracles_api.core.domain.Unidade;
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -48,8 +49,54 @@ public class AgendamentoPersonal {
     @Enumerated(EnumType.STRING)
     private StatusAgendamento status;
 
+    /** Preenchida pelo aluno depois da sessao realizada — nula ate ele avaliar. */
+    @Column(name = "nota_avaliacao")
+    private Integer notaAvaliacao;
+
+    @Column(name = "comentario_avaliacao")
+    private String comentarioAvaliacao;
+
     public LocalDateTime getFim() {
         return dataHora.plusMinutes(duracaoMinutos);
+    }
+
+    /**
+     * So o professor que esteve na sessao confirma que ela aconteceu — a
+     * secretaria agenda e cancela, mas nao estava la para atestar.
+     * So depois disso o aluno pode avaliar.
+     */
+    public void marcarRealizada(LocalDateTime agora) {
+        if (this.status != StatusAgendamento.AGENDADO) {
+            throw new RegraNegocioException("Esta sessao nao esta agendada.");
+        }
+        if (agora.isBefore(getFim())) {
+            throw new RegraNegocioException("Esta sessao ainda nao aconteceu.");
+        }
+        this.status = StatusAgendamento.REALIZADA;
+    }
+
+    /**
+     * Cancelar so faz sentido antes da sessao acontecer — depois de
+     * REALIZADA (e possivelmente avaliada), desfazer o registro apagaria
+     * um atendimento que de fato ocorreu.
+     */
+    public void cancelar() {
+        if (this.status == StatusAgendamento.REALIZADA) {
+            throw new RegraNegocioException("Esta sessao ja foi realizada e nao pode ser cancelada.");
+        }
+        this.status = StatusAgendamento.CANCELADO;
+    }
+
+    /** O aluno avalia uma vez so — a nota registrada fica, nao e uma media que se refaz. */
+    public void avaliar(int nota, String comentario) {
+        if (this.status != StatusAgendamento.REALIZADA) {
+            throw new RegraNegocioException("Esta sessao ainda nao foi realizada.");
+        }
+        if (this.notaAvaliacao != null) {
+            throw new RegraNegocioException("Esta sessao ja foi avaliada.");
+        }
+        this.notaAvaliacao = nota;
+        this.comentarioAvaliacao = comentario;
     }
 
     @Override
