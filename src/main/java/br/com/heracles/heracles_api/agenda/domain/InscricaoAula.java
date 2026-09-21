@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.agenda.domain;
 
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -41,6 +42,12 @@ public class InscricaoAula {
     @Column(name = "cancelado_em")
     private LocalDateTime canceladoEm;
 
+    /** Nulo ate o professor confirmar; true = compareceu, false = faltou. */
+    private Boolean presente;
+
+    @Column(name = "presenca_confirmada_em")
+    private LocalDateTime presencaConfirmadaEm;
+
     @PrePersist
     public void prePersist() {
         if (this.inscritoEm == null) this.inscritoEm = LocalDateTime.now();
@@ -49,6 +56,25 @@ public class InscricaoAula {
     public void cancelar(LocalDateTime agora) {
         this.status = StatusInscricao.CANCELADA;
         this.canceladoEm = agora;
+    }
+
+    /**
+     * So o professor que deu a aula confirma quem compareceu — e so depois
+     * que ela aconteceu, uma vez so. Quem esta na fila de espera ou
+     * cancelou nunca teve vaga de fato, entao nao ha presenca a confirmar.
+     */
+    public void confirmarPresenca(boolean compareceu, LocalDateTime agora) {
+        if (this.status != StatusInscricao.INSCRITA) {
+            throw new RegraNegocioException("Esta vaga nao estava marcada — nao ha presenca a confirmar.");
+        }
+        if (agora.isBefore(this.aula.getFim())) {
+            throw new RegraNegocioException("Esta aula ainda nao aconteceu.");
+        }
+        if (this.presente != null) {
+            throw new RegraNegocioException("A presenca ja foi confirmada.");
+        }
+        this.presente = compareceu;
+        this.presencaConfirmadaEm = agora;
     }
 
     @Override

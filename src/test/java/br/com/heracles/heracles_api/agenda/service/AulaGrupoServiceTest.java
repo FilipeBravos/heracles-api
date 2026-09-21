@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.agenda.domain.InscricaoAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
+import br.com.heracles.heracles_api.agenda.dto.LinhaFaltaAluno;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.agenda.repository.InscricaoAulaRepository;
@@ -339,5 +340,175 @@ class AulaGrupoServiceTest {
 
         assertThat(resultado.getContent().get(0).inscrito()).isFalse();
         assertThat(resultado.getContent().get(0).posicaoEspera()).isEqualTo(2);
+    }
+
+    // ---------------------------------------------------------------
+    // Presenca
+    // ---------------------------------------------------------------
+
+    private AulaGrupo aulaPassada(long capacidade) {
+        AulaGrupo aula = aulaSalva(capacidade);
+        aula.setDataHora(LocalDateTime.now().minusHours(3));
+        return aula;
+    }
+
+    @Test
+    @DisplayName("So o proprio professor ve o roster da aula")
+    void listarInscricoesSoProprioProfessor() {
+        AulaGrupo aula = aulaSalva(15);
+        given(repository.findById(10L)).willReturn(Optional.of(aula));
+
+        Usuario outroProfessor = new Usuario();
+        outroProfessor.setId(99L);
+        outroProfessor.setEmail("outro@heracles.com.br");
+        given(usuarioRepository.findByEmailIgnoreCase("outro@heracles.com.br"))
+                .willReturn(Optional.of(outroProfessor));
+
+        assertThatThrownBy(() -> service.listarInscricoesEu("outro@heracles.com.br", 10L))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("O roster vem em ordem alfabetica, so quem tem vaga marcada")
+    void listarInscricoesRetornaRoster() {
+        AulaGrupo aula = aulaSalva(15);
+        given(repository.findById(10L)).willReturn(Optional.of(aula));
+        professor.setEmail("ana@heracles.com.br");
+        given(usuarioRepository.findByEmailIgnoreCase("ana@heracles.com.br")).willReturn(Optional.of(professor));
+
+        InscricaoAula inscricao = new InscricaoAula();
+        inscricao.setAluno(aluno);
+        inscricao.setStatus(StatusInscricao.INSCRITA);
+        given(inscricaoRepository.findByAulaIdAndStatusOrderByAluno_NomeAsc(10L, StatusInscricao.INSCRITA))
+                .willReturn(List.of(inscricao));
+
+        List<AulaGrupoDtos.LinhaPresenca> roster = service.listarInscricoesEu("ana@heracles.com.br", 10L);
+
+        assertThat(roster).hasSize(1);
+        assertThat(roster.get(0).alunoNome()).isEqualTo("Carla Souza");
+        assertThat(roster.get(0).presente()).isNull();
+    }
+
+    @Test
+    @DisplayName("So o proprio professor confirma presenca")
+    void confirmarPresencaSoProprioProfessor() {
+        AulaGrupo aula = aulaPassada(15);
+        given(repository.findById(10L)).willReturn(Optional.of(aula));
+
+        Usuario outroProfessor = new Usuario();
+        outroProfessor.setId(99L);
+        outroProfessor.setEmail("outro@heracles.com.br");
+        given(usuarioRepository.findByEmailIgnoreCase("outro@heracles.com.br"))
+                .willReturn(Optional.of(outroProfessor));
+
+        assertThatThrownBy(() -> service.confirmarPresencaEu("outro@heracles.com.br", 10L, 2L, true))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("Nao da pra confirmar presenca de uma aula que ainda nao aconteceu")
+    void naoConfirmaPresencaAntesDaAula() {
+        AulaGrupo aula = aulaSalva(15);
+        given(repository.findById(10L)).willReturn(Optional.of(aula));
+        professor.setEmail("ana@heracles.com.br");
+        given(usuarioRepository.findByEmailIgnoreCase("ana@heracles.com.br")).willReturn(Optional.of(professor));
+
+        InscricaoAula inscricao = new InscricaoAula();
+        inscricao.setAula(aula);
+        inscricao.setAluno(aluno);
+        inscricao.setStatus(StatusInscricao.INSCRITA);
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(10L, 2L, StatusInscricao.INSCRITA))
+                .willReturn(Optional.of(inscricao));
+
+        assertThatThrownBy(() -> service.confirmarPresencaEu("ana@heracles.com.br", 10L, 2L, true))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("ainda nao aconteceu");
+    }
+
+    @Test
+    @DisplayName("O professor confirma presenca da aula ja passada")
+    void confirmarPresencaComSucesso() {
+        AulaGrupo aula = aulaPassada(15);
+        given(repository.findById(10L)).willReturn(Optional.of(aula));
+        professor.setEmail("ana@heracles.com.br");
+        given(usuarioRepository.findByEmailIgnoreCase("ana@heracles.com.br")).willReturn(Optional.of(professor));
+
+        InscricaoAula inscricao = new InscricaoAula();
+        inscricao.setAula(aula);
+        inscricao.setAluno(aluno);
+        inscricao.setStatus(StatusInscricao.INSCRITA);
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(10L, 2L, StatusInscricao.INSCRITA))
+                .willReturn(Optional.of(inscricao));
+
+        service.confirmarPresencaEu("ana@heracles.com.br", 10L, 2L, false);
+
+        assertThat(inscricao.getPresente()).isFalse();
+        assertThat(inscricao.getPresencaConfirmadaEm()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Presenca ja confirmada nao se refaz")
+    void naoConfirmaPresencaDuasVezes() {
+        AulaGrupo aula = aulaPassada(15);
+        given(repository.findById(10L)).willReturn(Optional.of(aula));
+        professor.setEmail("ana@heracles.com.br");
+        given(usuarioRepository.findByEmailIgnoreCase("ana@heracles.com.br")).willReturn(Optional.of(professor));
+
+        InscricaoAula inscricao = new InscricaoAula();
+        inscricao.setAula(aula);
+        inscricao.setAluno(aluno);
+        inscricao.setStatus(StatusInscricao.INSCRITA);
+        inscricao.setPresente(true);
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(10L, 2L, StatusInscricao.INSCRITA))
+                .willReturn(Optional.of(inscricao));
+
+        assertThatThrownBy(() -> service.confirmarPresencaEu("ana@heracles.com.br", 10L, 2L, false))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("ja foi confirmada");
+    }
+
+    @Test
+    @DisplayName("So confirma presenca de quem tem vaga marcada")
+    void confirmarPresencaInscricaoNaoEncontrada() {
+        AulaGrupo aula = aulaPassada(15);
+        given(repository.findById(10L)).willReturn(Optional.of(aula));
+        professor.setEmail("ana@heracles.com.br");
+        given(usuarioRepository.findByEmailIgnoreCase("ana@heracles.com.br")).willReturn(Optional.of(professor));
+        given(inscricaoRepository.findByAulaIdAndAlunoIdAndStatus(10L, 2L, StatusInscricao.INSCRITA))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.confirmarPresencaEu("ana@heracles.com.br", 10L, 2L, true))
+                .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    @DisplayName("O relatorio calcula a taxa de comparecimento geral")
+    void relatorioPresencaCalculaTaxa() {
+        given(inscricaoRepository.totalConfirmadasDesde(any())).willReturn(10L);
+        given(inscricaoRepository.totalFaltasDesde(any())).willReturn(3L);
+        given(inscricaoRepository.faltasPorAlunoDesde(any(), any())).willReturn(
+                List.of(new LinhaFaltaAluno(2L, "Carla Souza", 3L, 7L)));
+
+        AulaGrupoDtos.PainelPresenca relatorio = service.relatorioPresenca(90);
+
+        assertThat(relatorio.dias()).isEqualTo(90);
+        assertThat(relatorio.totalConfirmadas()).isEqualTo(10L);
+        assertThat(relatorio.totalFaltas()).isEqualTo(3L);
+        // (10 - 3) / 10 * 100 = 70.0
+        assertThat(relatorio.taxaComparecimento()).isEqualByComparingTo("70.0");
+        assertThat(relatorio.maisFaltosos()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Sem presenca confirmada no periodo, a taxa e zero em vez de dividir por zero")
+    void relatorioPresencaSemConfirmacaoTaxaZero() {
+        given(inscricaoRepository.totalConfirmadasDesde(any())).willReturn(0L);
+        given(inscricaoRepository.totalFaltasDesde(any())).willReturn(0L);
+        given(inscricaoRepository.faltasPorAlunoDesde(any(), any())).willReturn(List.of());
+
+        AulaGrupoDtos.PainelPresenca relatorio = service.relatorioPresenca(90);
+
+        assertThat(relatorio.taxaComparecimento()).isEqualByComparingTo(java.math.BigDecimal.ZERO);
+        assertThat(relatorio.maisFaltosos()).isEmpty();
     }
 }

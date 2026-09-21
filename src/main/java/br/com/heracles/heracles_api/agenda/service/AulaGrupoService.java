@@ -17,11 +17,16 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.core.service.NotificacaoService;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
+import br.com.heracles.heracles_api.agenda.dto.LinhaFaltaAluno;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -55,10 +60,16 @@ public class AulaGrupoService {
         this.notificacaoService = notificacaoService;
     }
 
-    /** Agenda operacional: aulas futuras ativas, com a ocupacao e a fila de espera de cada uma. */
+    /**
+     * Agenda operacional: aulas de hoje em diante, ativas, com a ocupacao
+     * e a fila de espera de cada uma. Comeca no inicio do dia, nao agora
+     * — senao uma aula que aconteceu de manha sumiria da lista a tarde,
+     * antes do professor confirmar quem compareceu.
+     */
     @Transactional(readOnly = true)
     public Page<AulaGrupoDtos.Response> listar(Pageable pageable) {
-        return repository.findByStatusAndDataHoraGreaterThanEqual(StatusAula.ATIVA, LocalDateTime.now(), pageable)
+        LocalDateTime desde = LocalDate.now().atStartOfDay();
+        return repository.findByStatusAndDataHoraGreaterThanEqual(StatusAula.ATIVA, desde, pageable)
                 .map(aula -> AulaGrupoDtos.Response.de(aula, vagasOcupadas(aula.getId()), vagasEspera(aula.getId())));
     }
 
@@ -193,6 +204,68 @@ public class AulaGrupoService {
                     proximo.setStatus(StatusInscricao.INSCRITA);
                     notificacaoService.notificarVagaLiberada(proximo.getAluno(), aula.getId(), aula.getNome());
                 });
+    }
+
+    // ---------------------------------------------------------------
+    // Presenca
+    // ---------------------------------------------------------------
+
+    /**
+     * O roster da aula para o professor confirmar presenca — so quem tem
+     * vaga marcada participa de fato, quem esta na espera ou cancelou nao
+     * entra na lista.
+     */
+    @Transactional(readOnly = true)
+    public List<AulaGrupoDtos.LinhaPresenca> listarInscricoesEu(String emailAutenticado, Long aulaId) {
+        AulaGrupo aula = buscarComoProfessor(emailAutenticado, aulaId);
+        return inscricaoRepository.findByAulaIdAndStatusOrderByAluno_NomeAsc(aula.getId(), StatusInscricao.INSCRITA)
+                .stream()
+                .map(AulaGrupoDtos.LinhaPresenca::de)
+                .toList();
+    }
+
+    /**
+     * So o professor que deu a aula confirma quem compareceu. "Nao
+     * encontrada" tambem cobre tentar confirmar a aula de outro professor,
+     * sem revelar que ela existe, so que nao e dele.
+     */
+    @Transactional
+    public void confirmarPresencaEu(String emailAutenticado, Long aulaId, Long alunoId, boolean compareceu) {
+        buscarComoProfessor(emailAutenticado, aulaId);
+
+        InscricaoAula inscricao = inscricaoRepository
+                .findByAulaIdAndAlunoIdAndStatus(aulaId, alunoId, StatusInscricao.INSCRITA)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Inscricao nao encontrada."));
+
+        inscricao.confirmarPresenca(compareceu, LocalDateTime.now());
+    }
+
+    /** Taxa de comparecimento geral e o ranking de quem mais falta no periodo. */
+    @Transactional(readOnly = true)
+    public AulaGrupoDtos.PainelPresenca relatorioPresenca(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+
+        long totalConfirmadas = inscricaoRepository.totalConfirmadasDesde(desde);
+        long totalFaltas = inscricaoRepository.totalFaltasDesde(desde);
+        BigDecimal taxaComparecimento = totalConfirmadas > 0
+                ? BigDecimal.valueOf(totalConfirmadas - totalFaltas)
+                        .multiply(BigDecimal.valueOf(100))
+                        .divide(BigDecimal.valueOf(totalConfirmadas), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        List<LinhaFaltaAluno> maisFaltosos = inscricaoRepository.faltasPorAlunoDesde(desde, PageRequest.of(0, 10));
+
+        return new AulaGrupoDtos.PainelPresenca(dias, totalConfirmadas, totalFaltas, taxaComparecimento, maisFaltosos);
+    }
+
+    /** Carrega a aula e garante que quem esta autenticado e o professor dela. */
+    private AulaGrupo buscarComoProfessor(String emailAutenticado, Long aulaId) {
+        AulaGrupo aula = buscar(aulaId);
+        Usuario professor = eu(emailAutenticado);
+        if (!aula.getProfessor().getId().equals(professor.getId())) {
+            throw RecursoNaoEncontradoException.de("Aula", aulaId);
+        }
+        return aula;
     }
 
     /** Posicao (1-based) do aluno na fila de espera, ou null se ele nao esta nela. */

@@ -3,13 +3,17 @@ package br.com.heracles.heracles_api.agenda.controller;
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
 import br.com.heracles.heracles_api.agenda.service.AulaGrupoService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+@Validated
 @RestController
 @RequestMapping("/api/aulas")
 public class AulaGrupoController {
@@ -51,5 +55,12 @@ public class AulaGrupoController {
     public ResponseEntity<Void> cancelarInscricao(@PathVariable Long id, @PathVariable Long alunoId) {
         service.cancelarInscricao(id, alunoId);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Taxa de comparecimento geral e o ranking de quem mais falta em aula em grupo. */
+    @GetMapping("/relatorio")
+    public AulaGrupoDtos.PainelPresenca relatorio(
+            @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
+        return service.relatorioPresenca(dias);
     }
 }
