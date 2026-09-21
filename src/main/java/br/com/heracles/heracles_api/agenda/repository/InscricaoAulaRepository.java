@@ -12,7 +12,14 @@ public interface InscricaoAulaRepository extends JpaRepository<InscricaoAula, Lo
 
     Optional<InscricaoAula> findByAulaIdAndAlunoIdAndStatus(Long aulaId, Long alunoId, StatusInscricao status);
 
+    Optional<InscricaoAula> findByAulaIdAndAlunoIdAndStatusIn(Long aulaId, Long alunoId, List<StatusInscricao> status);
+
+    boolean existsByAulaIdAndAlunoIdAndStatusIn(Long aulaId, Long alunoId, List<StatusInscricao> status);
+
     long countByAulaIdAndStatus(Long aulaId, StatusInscricao status);
+
+    /** A fila de espera de uma aula, do primeiro ao ultimo — quem chegou antes sobe primeiro. */
+    List<InscricaoAula> findByAulaIdAndStatusOrderByInscritoEmAsc(Long aulaId, StatusInscricao status);
 
     @EntityGraph(attributePaths = {"aula", "aula.professor", "aula.unidade"})
     List<InscricaoAula> findByAlunoIdAndStatusOrderByAula_DataHoraAsc(Long alunoId, StatusInscricao status);

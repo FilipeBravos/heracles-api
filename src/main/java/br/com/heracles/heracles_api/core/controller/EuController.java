@@ -145,11 +145,14 @@ public class EuController {
         return aulaGrupoService.listarParaAluno(jwt.getSubject(), pageable);
     }
 
-    /** Reserva a propria vaga — o self-service do app, sem passar pelo balcao. */
+    /**
+     * Reserva a propria vaga — o self-service do app, sem passar pelo
+     * balcao. A resposta diz se entrou direto ou foi para a fila de
+     * espera, ja que a turma cheia nao recusa mais.
+     */
     @PostMapping("/aulas/{id}/inscricoes")
-    public ResponseEntity<Void> inscreverEmAula(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
-        aulaGrupoService.inscreverEu(jwt.getSubject(), id);
-        return ResponseEntity.noContent().build();
+    public AulaGrupoDtos.ResultadoInscricao inscreverEmAula(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        return aulaGrupoService.inscreverEu(jwt.getSubject(), id);
     }
 
     @DeleteMapping("/aulas/{id}/inscricoes")

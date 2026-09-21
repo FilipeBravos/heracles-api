@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.agenda.dto;
 
 import br.com.heracles.heracles_api.agenda.domain.AulaGrupo;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
+import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import jakarta.validation.constraints.*;
 
 import java.time.LocalDateTime;
@@ -36,7 +37,7 @@ public final class AulaGrupoDtos {
     ) {
     }
 
-    /** Visao operacional: quem monta/gerencia a agenda, com a ocupacao da turma. */
+    /** Visao operacional: quem monta/gerencia a agenda, com a ocupacao e a fila de espera da turma. */
     public record Response(
             Long id,
             String nome,
@@ -48,9 +49,10 @@ public final class AulaGrupoDtos {
             int duracaoMinutos,
             int capacidadeMaxima,
             long vagasOcupadas,
+            long vagasEspera,
             StatusAula status
     ) {
-        public static Response de(AulaGrupo aula, long vagasOcupadas) {
+        public static Response de(AulaGrupo aula, long vagasOcupadas, long vagasEspera) {
             return new Response(
                     aula.getId(),
                     aula.getNome(),
@@ -62,12 +64,13 @@ public final class AulaGrupoDtos {
                     aula.getDuracaoMinutos(),
                     aula.getCapacidadeMaxima(),
                     vagasOcupadas,
+                    vagasEspera,
                     aula.getStatus()
             );
         }
     }
 
-    /** Visao do aluno: sem o professor como "dado de gestao", com se ele mesmo esta inscrito. */
+    /** Visao do aluno: sem o professor como "dado de gestao", com se ele mesmo esta inscrito ou em que posicao da espera esta. */
     public record ParaAluno(
             Long id,
             String nome,
@@ -78,9 +81,11 @@ public final class AulaGrupoDtos {
             int capacidadeMaxima,
             long vagasOcupadas,
             boolean inscrito,
+            /** Posicao (1-based) na fila de espera, ou null se nao esta nela. */
+            Integer posicaoEspera,
             StatusAula status
     ) {
-        public static ParaAluno de(AulaGrupo aula, long vagasOcupadas, boolean inscrito) {
+        public static ParaAluno de(AulaGrupo aula, long vagasOcupadas, boolean inscrito, Integer posicaoEspera) {
             return new ParaAluno(
                     aula.getId(),
                     aula.getNome(),
@@ -91,6 +96,7 @@ public final class AulaGrupoDtos {
                     aula.getCapacidadeMaxima(),
                     vagasOcupadas,
                     inscrito,
+                    posicaoEspera,
                     aula.getStatus()
             );
         }
@@ -101,5 +107,19 @@ public final class AulaGrupoDtos {
             @NotNull(message = "Informe o aluno")
             Long alunoId
     ) {
+    }
+
+    /**
+     * O que aconteceu ao tentar marcar a vaga: entrou direto (INSCRITA) ou
+     * a turma estava cheia e foi para a fila (EM_ESPERA, com a posicao).
+     */
+    public record ResultadoInscricao(StatusInscricao status, Integer posicaoEspera) {
+        public static ResultadoInscricao inscrito() {
+            return new ResultadoInscricao(StatusInscricao.INSCRITA, null);
+        }
+
+        public static ResultadoInscricao emEspera(int posicao) {
+            return new ResultadoInscricao(StatusInscricao.EM_ESPERA, posicao);
+        }
     }
 }
