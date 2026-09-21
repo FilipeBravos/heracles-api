@@ -8,6 +8,7 @@ import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public final class EquipamentoDtos {
 
@@ -76,5 +77,24 @@ public final class EquipamentoDtos {
                     chamado.getDataResolucao()
             );
         }
+    }
+
+    /**
+     * O painel de manutencao: custo, tempo medio de resolucao, os
+     * equipamentos mais problematicos e a comparacao entre unidades no
+     * periodo — o que Equipamentos nunca teve, do jeito que Loja e
+     * Personal ja ganharam nesta sessao.
+     */
+    public record PainelManutencao(
+            int dias,
+            long quantidadeChamados,
+            long quantidadeAbertos,
+            BigDecimal custoTotal,
+            BigDecimal tempoMedioResolucaoHoras,
+            /** Do mais problematico pro menos, limitado aos top 10. */
+            List<LinhaEquipamentoProblematico> maisProblematicos,
+            /** Do maior custo pro menor. */
+            List<LinhaManutencaoPorUnidade> porUnidade
+    ) {
     }
 }

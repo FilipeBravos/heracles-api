@@ -6,13 +6,22 @@ import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.operacoes.domain.*;
 import br.com.heracles.heracles_api.operacoes.dto.EquipamentoDtos;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaEquipamentoProblematico;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPorUnidade;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaTempoResolucao;
 import br.com.heracles.heracles_api.operacoes.repository.ChamadoManutencaoRepository;
 import br.com.heracles.heracles_api.operacoes.repository.EquipamentoRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -108,6 +117,36 @@ public class EquipamentoService {
         chamado.getEquipamento().setStatusAtual(StatusEquipamento.OK);
 
         return EquipamentoDtos.ChamadoResponse.de(chamado);
+    }
+
+    /**
+     * O painel de manutencao: custo, tempo medio de resolucao, os
+     * equipamentos mais problematicos e a comparacao entre unidades no
+     * periodo.
+     */
+    @Transactional(readOnly = true)
+    public EquipamentoDtos.PainelManutencao relatorio(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+
+        long quantidadeChamados = chamadoRepository.countByDataChamadoAfter(desde);
+        long quantidadeAbertos = chamadoRepository.countByDataChamadoAfterAndStatus(desde, StatusChamado.ABERTO);
+        BigDecimal custoTotal = chamadoRepository.custoTotalDesde(desde);
+
+        List<LinhaTempoResolucao> tempos = chamadoRepository.temposResolucaoDesde(desde);
+        BigDecimal tempoMedioResolucaoHoras = tempos.isEmpty()
+                ? BigDecimal.ZERO
+                : BigDecimal.valueOf(tempos.stream()
+                                .mapToLong(t -> Duration.between(t.dataChamado(), t.dataResolucao()).toMinutes())
+                                .average().orElse(0) / 60.0)
+                        .setScale(1, RoundingMode.HALF_UP);
+
+        List<LinhaEquipamentoProblematico> maisProblematicos =
+                chamadoRepository.equipamentosProblematicosDesde(desde, PageRequest.of(0, 10));
+        List<LinhaManutencaoPorUnidade> porUnidade = chamadoRepository.manutencaoPorUnidadeDesde(desde);
+
+        return new EquipamentoDtos.PainelManutencao(
+                dias, quantidadeChamados, quantidadeAbertos, custoTotal, tempoMedioResolucaoHoras,
+                maisProblematicos, porUnidade);
     }
 
     private Equipamento carregar(Long id) {
