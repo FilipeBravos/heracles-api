@@ -20,9 +20,6 @@ import java.time.LocalDateTime;
 @Service
 public class DashboardService {
 
-    /** Estoque igual ou abaixo disso conta como baixo na visao geral. */
-    private static final int LIMITE_ESTOQUE_BAIXO = 5;
-
     private final UsuarioRepository usuarioRepository;
     private final TreinoRepository treinoRepository;
     private final EquipamentoRepository equipamentoRepository;
@@ -59,7 +56,7 @@ public class DashboardService {
                 assinaturaRepository.countByStatus(StatusAssinatura.INADIMPLENTE),
                 assinaturaRepository.contarVencidas(hoje),
                 equipamentoRepository.countByStatusAtual(StatusEquipamento.EM_MANUTENCAO),
-                produtoRepository.countByAtivoTrueAndQuantidadeEstoqueLessThanEqual(LIMITE_ESTOQUE_BAIXO),
+                produtoRepository.countComEstoqueBaixo(),
                 vendaRepository.countByDataVendaAfter(inicioDoMes),
                 vendaRepository.faturamentoDesde(inicioDoMes)
         );

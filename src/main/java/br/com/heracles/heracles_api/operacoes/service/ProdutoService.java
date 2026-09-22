@@ -12,6 +12,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Service
 public class ProdutoService {
 
@@ -85,10 +87,17 @@ public class ProdutoService {
         return ProdutoDtos.Response.de(produto);
     }
 
+    /** A sugestao de reposicao: produtos ativos abaixo do proprio estoque minimo, do maior deficit pro menor. */
+    @Transactional(readOnly = true)
+    public List<ProdutoDtos.LinhaReposicao> reposicaoEstoque() {
+        return repository.buscarComEstoqueBaixo().stream().map(ProdutoDtos.LinhaReposicao::de).toList();
+    }
+
     private void aplicar(ProdutoDtos.Request request, Produto produto) {
         produto.setNome(request.nome().trim());
         produto.setMarca(request.marca() != null && !request.marca().isBlank() ? request.marca().trim() : null);
         produto.setPrecoVenda(request.precoVenda());
+        produto.setEstoqueMinimo(request.estoqueMinimo());
     }
 
     private Produto carregar(Long id) {

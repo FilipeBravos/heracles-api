@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/produtos")
 public class ProdutoController {
@@ -56,5 +58,11 @@ public class ProdutoController {
     @PutMapping("/{id}/ativo")
     public ProdutoDtos.Response alternarAtivo(@PathVariable Long id) {
         return service.alternarAtivo(id);
+    }
+
+    /** A sugestao de reposicao: produtos ativos abaixo do proprio estoque minimo, do maior deficit pro menor. */
+    @GetMapping("/reposicao-estoque")
+    public List<ProdutoDtos.LinhaReposicao> reposicaoEstoque() {
+        return service.reposicaoEstoque();
     }
 }

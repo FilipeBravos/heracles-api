@@ -29,7 +29,12 @@ public final class ProdutoDtos {
             @NotNull(message = "Informe a quantidade em estoque")
             @Min(value = 0, message = "O estoque nao pode ser negativo")
             @Max(value = 1_000_000, message = "Quantidade acima do limite")
-            Integer quantidadeEstoque
+            Integer quantidadeEstoque,
+
+            @NotNull(message = "Informe o estoque minimo")
+            @Min(value = 0, message = "O estoque minimo nao pode ser negativo")
+            @Max(value = 1_000_000, message = "Quantidade acima do limite")
+            Integer estoqueMinimo
     ) {
     }
 
@@ -50,6 +55,7 @@ public final class ProdutoDtos {
             String marca,
             BigDecimal precoVenda,
             Integer quantidadeEstoque,
+            Integer estoqueMinimo,
             boolean ativo
     ) {
         public static Response de(Produto produto) {
@@ -61,7 +67,33 @@ public final class ProdutoDtos {
                     produto.getMarca(),
                     produto.getPrecoVenda(),
                     produto.getQuantidadeEstoque(),
+                    produto.getEstoqueMinimo(),
                     produto.isAtivo()
+            );
+        }
+    }
+
+    /** Uma linha da sugestao de reposicao: produto abaixo do proprio estoque minimo, e quanto falta pra completar. */
+    public record LinhaReposicao(
+            Long produtoId,
+            String produtoNome,
+            String marca,
+            Long unidadeId,
+            String unidadeNome,
+            Integer quantidadeEstoque,
+            Integer estoqueMinimo,
+            int quantidadeSugerida
+    ) {
+        public static LinhaReposicao de(Produto produto) {
+            return new LinhaReposicao(
+                    produto.getId(),
+                    produto.getNome(),
+                    produto.getMarca(),
+                    produto.getUnidade().getId(),
+                    produto.getUnidade().getNome(),
+                    produto.getQuantidadeEstoque(),
+                    produto.getEstoqueMinimo(),
+                    produto.quantidadeParaRepor()
             );
         }
     }
