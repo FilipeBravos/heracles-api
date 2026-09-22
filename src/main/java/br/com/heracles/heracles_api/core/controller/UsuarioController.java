@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.core.controller;
 import br.com.heracles.heracles_api.core.domain.AvaliacaoFisicaFoto;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
+import br.com.heracles.heracles_api.core.dto.Aniversariante;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
@@ -140,6 +141,12 @@ public class UsuarioController {
             @RequestParam(required = false) Long deId,
             @RequestParam(required = false) Long paraId) {
         return service.compararAvaliacoesFisicas(id, deId, paraId);
+    }
+
+    /** Aniversariantes do mes corrente, do dia mais proximo pro mais distante. */
+    @GetMapping("/aniversariantes")
+    public List<Aniversariante> aniversariantes() {
+        return service.aniversariantesDoMes();
     }
 
     /** Cabecalho do alerta: quantos alunos com matricula ativa estao com a reavaliacao fisica vencida. */

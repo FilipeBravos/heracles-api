@@ -71,6 +71,20 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
     List<Usuario> buscarAniversariantesDoDia(int mes, int dia);
 
     /**
+     * Aniversariantes do mes corrente, do dia mais proximo pro mais
+     * distante — mesmo filtro de buscarAniversariantesDoDia, agora pelo
+     * mes inteiro, pra secretaria planejar com antecedencia em vez de
+     * so descobrir no dia.
+     */
+    @Query("""
+            select u from Usuario u
+            where u.tipoPerfil = 'ALUNO' and u.status = 'ATIVO' and u.dataNascimento is not null
+              and function('date_part', 'month', u.dataNascimento) = :mes
+            order by function('date_part', 'day', u.dataNascimento) asc
+            """)
+    List<Usuario> buscarAniversariantesDoMes(int mes);
+
+    /**
      * Alunos com matricula ativa que nunca receberam uma ficha de treino —
      * pagam, mas nunca foram "recebidos" de verdade pelo treino. Mesma
      * logica de buscarAlunosSemAnamnese, mas a pergunta e sobre prescricao,

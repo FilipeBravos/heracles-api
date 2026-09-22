@@ -21,6 +21,7 @@ import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.ComissaoIndicacaoRepository;
+import br.com.heracles.heracles_api.matriculas.repository.ExecucaoRenovacaoAutomaticaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.LembreteEnviadoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,6 +66,7 @@ class AssinaturaServiceTest {
     @Mock private CheckinRepository checkinRepository;
     @Mock private LembreteEnviadoRepository lembreteRepository;
     @Mock private ComissaoIndicacaoRepository comissaoIndicacaoRepository;
+    @Mock private ExecucaoRenovacaoAutomaticaRepository execucaoRenovacaoRepository;
 
     private AssinaturaService service;
 
@@ -77,7 +79,7 @@ class AssinaturaServiceTest {
     void preparar() {
         service = new AssinaturaService(
                 repository, planoRepository, usuarioRepository, unidadeRepository, cobrancaRepository,
-                checkinRepository, lembreteRepository, comissaoIndicacaoRepository);
+                checkinRepository, lembreteRepository, comissaoIndicacaoRepository, execucaoRenovacaoRepository);
 
         centro = new Unidade();
         centro.setId(1L);
@@ -475,6 +477,33 @@ class AssinaturaServiceTest {
 
         assertThat(service.renovarAutomaticamente()).isZero();
         verify(cobrancaRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Cada execucao da renovacao automatica registra a quantidade no log, mesmo sem candidatas")
+    void renovacaoAutomaticaRegistraLog() {
+        given(repository.buscarParaRenovacaoAutomatica(any())).willReturn(List.of());
+
+        service.renovarAutomaticamente();
+
+        ArgumentCaptor<ExecucaoRenovacaoAutomatica> captor = ArgumentCaptor.forClass(ExecucaoRenovacaoAutomatica.class);
+        verify(execucaoRenovacaoRepository).save(captor.capture());
+        assertThat(captor.getValue().getQuantidadeRenovada()).isZero();
+    }
+
+    @Test
+    @DisplayName("O historico de renovacao automatica vem mapeado do repositorio")
+    void historicoRenovacaoAutomaticaMapeiaLinha() {
+        ExecucaoRenovacaoAutomatica execucao = new ExecucaoRenovacaoAutomatica();
+        execucao.setId(1L);
+        execucao.setQuantidadeRenovada(4);
+        given(execucaoRenovacaoRepository.findAllByOrderByDataExecucaoDesc(any()))
+                .willReturn(new PageImpl<>(List.of(execucao)));
+
+        var linha = service.historicoRenovacaoAutomatica(PageRequest.of(0, 20)).getContent().get(0);
+
+        assertThat(linha.id()).isEqualTo(1L);
+        assertThat(linha.quantidadeRenovada()).isEqualTo(4);
     }
 
     // ---------------------------------------------------------------
