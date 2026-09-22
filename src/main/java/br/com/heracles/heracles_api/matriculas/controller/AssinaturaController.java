@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.matriculas.controller;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ComissaoIndicacaoDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
@@ -122,6 +123,25 @@ public class AssinaturaController {
     @GetMapping("/indicacoes")
     public List<ContagemAgrupada> indicacoes() {
         return service.indicacoes();
+    }
+
+    /** Cabecalho do alerta: quantas comissoes de indicacao esperam aprovacao da secretaria. */
+    @GetMapping("/comissoes-indicacao/resumo")
+    public ComissaoIndicacaoDtos.Resumo resumoComissoesIndicacao() {
+        return service.resumoComissoesIndicacao();
+    }
+
+    /** A fila de comissoes de indicacao pendentes de aprovacao. */
+    @GetMapping("/comissoes-indicacao")
+    public Page<ComissaoIndicacaoDtos.Response> comissoesIndicacaoPendentes(
+            @PageableDefault(size = 20) Pageable pageable) {
+        return service.comissoesIndicacaoPendentes(pageable);
+    }
+
+    /** Aprova a comissao: aplica o desconto na cobranca pendente da matricula vigente do indicador. */
+    @PutMapping("/comissoes-indicacao/{id}/aplicar")
+    public ComissaoIndicacaoDtos.Response aplicarComissaoIndicacao(@PathVariable Long id) {
+        return service.aplicarComissaoIndicacao(id);
     }
 
     /** Quantos cancelamentos por motivo, do mais comum para o menos comum. */

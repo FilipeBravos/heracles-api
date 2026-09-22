@@ -8,6 +8,7 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.*;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ComissaoIndicacaoDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
@@ -19,6 +20,7 @@ import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.ComissaoIndicacaoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.LembreteEnviadoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +64,7 @@ class AssinaturaServiceTest {
     @Mock private CobrancaRepository cobrancaRepository;
     @Mock private CheckinRepository checkinRepository;
     @Mock private LembreteEnviadoRepository lembreteRepository;
+    @Mock private ComissaoIndicacaoRepository comissaoIndicacaoRepository;
 
     private AssinaturaService service;
 
@@ -74,7 +77,7 @@ class AssinaturaServiceTest {
     void preparar() {
         service = new AssinaturaService(
                 repository, planoRepository, usuarioRepository, unidadeRepository, cobrancaRepository,
-                checkinRepository, lembreteRepository);
+                checkinRepository, lembreteRepository, comissaoIndicacaoRepository);
 
         centro = new Unidade();
         centro.setId(1L);
@@ -472,6 +475,155 @@ class AssinaturaServiceTest {
 
         assertThat(service.renovarAutomaticamente()).isZero();
         verify(cobrancaRepository, never()).save(any());
+    }
+
+    // ---------------------------------------------------------------
+    // Comissao de indicacao
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Primeiro pagamento de assinatura indicada cria a comissao pendente")
+    void primeiroPagamentoDeIndicadaCriaComissao() {
+        Usuario indicador = new Usuario();
+        indicador.setId(20L);
+        indicador.setNome("Bruna Lima");
+
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(5));
+        assinatura.setIndicadoPor(indicador);
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+
+        Cobranca pendente = new Cobranca();
+        pendente.setAssinatura(assinatura);
+        pendente.setStatus(StatusCobranca.PENDENTE);
+        given(cobrancaRepository.findByAssinaturaIdAndStatus(99L, StatusCobranca.PENDENTE))
+                .willReturn(Optional.of(pendente));
+
+        service.renovar(99L);
+
+        ArgumentCaptor<ComissaoIndicacao> captor = ArgumentCaptor.forClass(ComissaoIndicacao.class);
+        verify(comissaoIndicacaoRepository).save(captor.capture());
+        assertThat(captor.getValue().getIndicador()).isEqualTo(indicador);
+        assertThat(captor.getValue().getAssinatura()).isEqualTo(assinatura);
+        assertThat(captor.getValue().getValor()).isEqualByComparingTo("30.00");
+    }
+
+    @Test
+    @DisplayName("Assinatura sem indicador nao cria comissao")
+    void semIndicadorNaoCriaComissao() {
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(5));
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+
+        Cobranca pendente = new Cobranca();
+        pendente.setStatus(StatusCobranca.PENDENTE);
+        given(cobrancaRepository.findByAssinaturaIdAndStatus(99L, StatusCobranca.PENDENTE))
+                .willReturn(Optional.of(pendente));
+
+        service.renovar(99L);
+
+        verify(comissaoIndicacaoRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Renovacao seguinte da mesma indicada nao duplica a comissao")
+    void renovacaoSeguinteNaoDuplicaComissao() {
+        Usuario indicador = new Usuario();
+        indicador.setId(20L);
+        indicador.setNome("Bruna Lima");
+
+        Assinatura assinatura = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(5));
+        assinatura.setIndicadoPor(indicador);
+        given(repository.findWithAlunoAndPlanoById(99L)).willReturn(Optional.of(assinatura));
+        given(comissaoIndicacaoRepository.existsByAssinaturaId(99L)).willReturn(true);
+
+        Cobranca pendente = new Cobranca();
+        pendente.setStatus(StatusCobranca.PENDENTE);
+        given(cobrancaRepository.findByAssinaturaIdAndStatus(99L, StatusCobranca.PENDENTE))
+                .willReturn(Optional.of(pendente));
+
+        service.renovar(99L);
+
+        verify(comissaoIndicacaoRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Aplicar comissao desconta o valor da cobranca pendente do indicador e marca como aplicada")
+    void aplicarComissaoDescontaCobrancaDoIndicador() {
+        Usuario indicador = new Usuario();
+        indicador.setId(20L);
+        indicador.setNome("Bruna Lima");
+
+        Usuario indicado = new Usuario();
+        indicado.setId(10L);
+        indicado.setNome("Marina Alves");
+
+        Assinatura assinaturaIndicada = new Assinatura();
+        assinaturaIndicada.setId(99L);
+        assinaturaIndicada.setAluno(indicado);
+
+        ComissaoIndicacao comissao = new ComissaoIndicacao();
+        comissao.setId(1L);
+        comissao.setIndicador(indicador);
+        comissao.setAssinatura(assinaturaIndicada);
+        comissao.setValor(new BigDecimal("30.00"));
+        given(comissaoIndicacaoRepository.findById(1L)).willReturn(Optional.of(comissao));
+
+        Assinatura assinaturaDoIndicador = assinaturaDe(StatusAssinatura.ATIVA, LocalDate.now().plusDays(10));
+        assinaturaDoIndicador.setId(50L);
+        given(repository.buscarVigentePorAluno(20L)).willReturn(Optional.of(assinaturaDoIndicador));
+
+        Cobranca cobrancaDoIndicador = new Cobranca();
+        cobrancaDoIndicador.setStatus(StatusCobranca.PENDENTE);
+        cobrancaDoIndicador.setValor(new BigDecimal("129.90"));
+        given(cobrancaRepository.findByAssinaturaIdAndStatus(50L, StatusCobranca.PENDENTE))
+                .willReturn(Optional.of(cobrancaDoIndicador));
+
+        ComissaoIndicacaoDtos.Response resposta = service.aplicarComissaoIndicacao(1L);
+
+        assertThat(cobrancaDoIndicador.getValor()).isEqualByComparingTo("99.90");
+        assertThat(comissao.getStatus()).isEqualTo(StatusComissao.APLICADA);
+        assertThat(comissao.getCobrancaAplicada()).isEqualTo(cobrancaDoIndicador);
+        assertThat(resposta.status()).isEqualTo(StatusComissao.APLICADA);
+        assertThat(resposta.indicadorNome()).isEqualTo("Bruna Lima");
+        assertThat(resposta.indicadoNome()).isEqualTo("Marina Alves");
+    }
+
+    @Test
+    @DisplayName("Comissao ja aplicada nao se aplica de novo")
+    void comissaoJaAplicadaNaoSeAplicaDeNovo() {
+        ComissaoIndicacao comissao = new ComissaoIndicacao();
+        comissao.setId(1L);
+        comissao.setStatus(StatusComissao.APLICADA);
+        given(comissaoIndicacaoRepository.findById(1L)).willReturn(Optional.of(comissao));
+
+        assertThatThrownBy(() -> service.aplicarComissaoIndicacao(1L))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("ja foi aplicada");
+    }
+
+    @Test
+    @DisplayName("Indicador sem matricula vigente nao recebe o desconto")
+    void indicadorSemMatriculaVigenteNaoRecebeDesconto() {
+        Usuario indicador = new Usuario();
+        indicador.setId(20L);
+        indicador.setNome("Bruna Lima");
+
+        ComissaoIndicacao comissao = new ComissaoIndicacao();
+        comissao.setId(1L);
+        comissao.setIndicador(indicador);
+        given(comissaoIndicacaoRepository.findById(1L)).willReturn(Optional.of(comissao));
+        given(repository.buscarVigentePorAluno(20L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.aplicarComissaoIndicacao(1L))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("nao tem matricula vigente");
+    }
+
+    @Test
+    @DisplayName("Resumo de comissoes de indicacao vem pronto do repositorio")
+    void resumoComissoesIndicacaoDelegaParaRepositorio() {
+        given(comissaoIndicacaoRepository.countByStatus(StatusComissao.PENDENTE)).willReturn(3L);
+
+        assertThat(service.resumoComissoesIndicacao().pendentes()).isEqualTo(3L);
     }
 
     @Test
