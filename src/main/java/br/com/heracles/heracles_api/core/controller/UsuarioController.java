@@ -5,11 +5,15 @@ import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
+import br.com.heracles.heracles_api.core.dto.ResumoReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
 import br.com.heracles.heracles_api.core.service.UsuarioService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -20,12 +24,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 
 @RestController
+@Validated
 @RequestMapping("/api/usuarios")
 public class UsuarioController {
 
@@ -134,5 +140,25 @@ public class UsuarioController {
             @RequestParam(required = false) Long deId,
             @RequestParam(required = false) Long paraId) {
         return service.compararAvaliacoesFisicas(id, deId, paraId);
+    }
+
+    /** Cabecalho do alerta: quantos alunos com matricula ativa estao com a reavaliacao fisica vencida. */
+    @GetMapping("/reavaliacao-vencida/resumo")
+    public ResumoReavaliacaoVencida resumoReavaliacaoVencida(
+            @RequestParam(defaultValue = "" + UsuarioService.DIAS_REAVALIACAO_PADRAO)
+            @Min(30) @Max(365) int diasSemReavaliacao) {
+        return service.resumoReavaliacaoVencida(diasSemReavaliacao);
+    }
+
+    /**
+     * O alerta de reavaliacao vencida: matricula ativa, mas a ultima
+     * avaliacao fisica passou da janela (ou nunca aconteceu).
+     */
+    @GetMapping("/reavaliacao-vencida")
+    public Page<LinhaReavaliacaoVencida> reavaliacaoVencida(
+            @PageableDefault(size = 20) Pageable pageable,
+            @RequestParam(defaultValue = "" + UsuarioService.DIAS_REAVALIACAO_PADRAO)
+            @Min(30) @Max(365) int diasSemReavaliacao) {
+        return service.reavaliacaoVencida(pageable, diasSemReavaliacao);
     }
 }

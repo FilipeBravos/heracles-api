@@ -4,16 +4,20 @@ import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
+@Validated
 @RequestMapping("/api/sessoes-personal")
 public class AgendamentoPersonalController {
 
@@ -42,9 +46,15 @@ public class AgendamentoPersonalController {
         return service.cancelar(id);
     }
 
-    /** Nota media por professor, do melhor pro pior — visibilidade de qualidade de atendimento pra gestao. */
+    /**
+     * Nota media por professor, do melhor pro pior — visibilidade de
+     * qualidade de atendimento pra gestao. `quantidadeMinima` deixa de
+     * fora quem ainda nao tem amostra suficiente pra sustentar a media.
+     */
     @GetMapping("/avaliacoes")
-    public List<LinhaAvaliacaoProfessor> avaliacoes() {
-        return service.mediaAvaliacaoPorProfessor();
+    public List<LinhaAvaliacaoProfessor> avaliacoes(
+            @RequestParam(defaultValue = "" + AgendamentoPersonalService.QUANTIDADE_MINIMA_AVALIACOES_PADRAO)
+            @Min(1) @Max(50) long quantidadeMinima) {
+        return service.mediaAvaliacaoPorProfessor(quantidadeMinima);
     }
 }

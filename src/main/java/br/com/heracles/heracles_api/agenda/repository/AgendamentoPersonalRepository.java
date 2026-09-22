@@ -25,14 +25,20 @@ public interface AgendamentoPersonalRepository extends JpaRepository<Agendamento
     /** Mesmo motivo de AulaGrupoRepository: sobreposicao se checa em Java. */
     List<AgendamentoPersonal> findByProfessorIdAndStatus(Long professorId, StatusAgendamento status);
 
-    /** Nota media por professor, do melhor pro pior — so quem ja foi avaliado entra. */
+    /**
+     * Nota media por professor, do melhor pro pior — so quem ja foi
+     * avaliado entra, e so quem tem pelo menos `minimo` avaliacoes: sem
+     * o HAVING, um professor com uma unica sessao de nota baixa (ou alta)
+     * dominaria a ponta do ranking sem amostra nenhuma para sustentar.
+     */
     @Query("""
             select new br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor(
                        p.id, p.nome, avg(s.notaAvaliacao), count(s))
             from AgendamentoPersonal s join s.professor p
             where s.notaAvaliacao is not null
             group by p.id, p.nome
+            having count(s) >= :minimo
             order by avg(s.notaAvaliacao) desc
             """)
-    List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor();
+    List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor(long minimo);
 }

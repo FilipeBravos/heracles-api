@@ -3,12 +3,14 @@ package br.com.heracles.heracles_api.core.repository;
 import br.com.heracles.heracles_api.core.domain.StatusUsuario;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencidaBruta;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -88,4 +90,38 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
               and exists (select 1 from Assinatura a where a.aluno = u and a.status = 'ATIVA')
             """)
     long countAlunosSemFichaDeTreino();
+
+    /**
+     * Alunos com matricula ativa cuja ultima avaliacao fisica passou da
+     * janela, ou que nunca fizeram nenhuma — mesma logica de
+     * buscarAlunosSemFichaDeTreino, agora sobre avaliacao fisica em vez
+     * de ficha de treino. "Nunca fez" entra tambem, e e o caso mais grave
+     * (nulls first): a subconsulta devolve nulo, nao uma data pequena.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencidaBruta(
+                       u.id, u.nome, u.email, u.telefone,
+                       (select max(av.data) from AvaliacaoFisica av where av.aluno = u))
+            from Usuario u
+            where u.tipoPerfil = 'ALUNO'
+              and exists (select 1 from Assinatura a where a.aluno = u and a.status = 'ATIVA')
+              and (
+                (select max(av.data) from AvaliacaoFisica av where av.aluno = u) < :limite
+                or not exists (select 1 from AvaliacaoFisica av where av.aluno = u)
+              )
+            order by (select max(av.data) from AvaliacaoFisica av where av.aluno = u) asc nulls first
+            """)
+    Page<LinhaReavaliacaoVencidaBruta> buscarReavaliacaoVencida(LocalDate limite, Pageable pageable);
+
+    /** Contagem da mesma janela de buscarReavaliacaoVencida, pro cabecalho do alerta. */
+    @Query("""
+            select count(u) from Usuario u
+            where u.tipoPerfil = 'ALUNO'
+              and exists (select 1 from Assinatura a where a.aluno = u and a.status = 'ATIVA')
+              and (
+                (select max(av.data) from AvaliacaoFisica av where av.aluno = u) < :limite
+                or not exists (select 1 from AvaliacaoFisica av where av.aluno = u)
+              )
+            """)
+    long countReavaliacaoVencida(LocalDate limite);
 }
