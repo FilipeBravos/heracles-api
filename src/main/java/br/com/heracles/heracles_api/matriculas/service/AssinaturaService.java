@@ -11,6 +11,7 @@ import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.CanalLembrete;
 import br.com.heracles.heracles_api.matriculas.domain.Checkin;
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
+import br.com.heracles.heracles_api.matriculas.domain.ComissaoIndicacao;
 import br.com.heracles.heracles_api.matriculas.domain.EstagioLembrete;
 import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
 import br.com.heracles.heracles_api.matriculas.domain.LembreteEnviado;
@@ -19,9 +20,11 @@ import br.com.heracles.heracles_api.matriculas.domain.OrigemAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusCobranca;
+import br.com.heracles.heracles_api.matriculas.domain.StatusComissao;
 import br.com.heracles.heracles_api.matriculas.dto.AssinaturaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
+import br.com.heracles.heracles_api.matriculas.dto.ComissaoIndicacaoDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
@@ -31,6 +34,7 @@ import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
+import br.com.heracles.heracles_api.matriculas.repository.ComissaoIndicacaoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.LembreteEnviadoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.springframework.data.domain.Page;
@@ -76,6 +80,9 @@ public class AssinaturaService {
      */
     public static final int DIAS_INATIVIDADE_PADRAO = 14;
 
+    /** Valor fixo do desconto de indicacao — mesmo valor pra qualquer plano, simples de comunicar no balcao. */
+    private static final BigDecimal VALOR_RECOMPENSA_INDICACAO = new BigDecimal("30.00");
+
     private final AssinaturaRepository repository;
     private final PlanoRepository planoRepository;
     private final UsuarioRepository usuarioRepository;
@@ -83,6 +90,7 @@ public class AssinaturaService {
     private final CobrancaRepository cobrancaRepository;
     private final CheckinRepository checkinRepository;
     private final LembreteEnviadoRepository lembreteRepository;
+    private final ComissaoIndicacaoRepository comissaoIndicacaoRepository;
 
     public AssinaturaService(AssinaturaRepository repository,
                              PlanoRepository planoRepository,
@@ -90,7 +98,8 @@ public class AssinaturaService {
                              UnidadeRepository unidadeRepository,
                              CobrancaRepository cobrancaRepository,
                              CheckinRepository checkinRepository,
-                             LembreteEnviadoRepository lembreteRepository) {
+                             LembreteEnviadoRepository lembreteRepository,
+                             ComissaoIndicacaoRepository comissaoIndicacaoRepository) {
         this.repository = repository;
         this.planoRepository = planoRepository;
         this.usuarioRepository = usuarioRepository;
@@ -98,6 +107,7 @@ public class AssinaturaService {
         this.cobrancaRepository = cobrancaRepository;
         this.checkinRepository = checkinRepository;
         this.lembreteRepository = lembreteRepository;
+        this.comissaoIndicacaoRepository = comissaoIndicacaoRepository;
     }
 
     @Transactional(readOnly = true)
@@ -311,6 +321,49 @@ public class AssinaturaService {
         return repository.contarIndicacoesPorAluno();
     }
 
+    /** Cabecalho do alerta: quantas comissoes de indicacao esperam aprovacao. */
+    @Transactional(readOnly = true)
+    public ComissaoIndicacaoDtos.Resumo resumoComissoesIndicacao() {
+        return new ComissaoIndicacaoDtos.Resumo(comissaoIndicacaoRepository.countByStatus(StatusComissao.PENDENTE));
+    }
+
+    /** A fila de comissoes pendentes — o alerta em si. */
+    @Transactional(readOnly = true)
+    public Page<ComissaoIndicacaoDtos.Response> comissoesIndicacaoPendentes(Pageable pageable) {
+        return comissaoIndicacaoRepository.findByStatus(StatusComissao.PENDENTE, pageable)
+                .map(ComissaoIndicacaoDtos.Response::de);
+    }
+
+    /**
+     * Aprova a comissao: aplica o desconto na cobranca pendente da
+     * matricula vigente do indicador. Sem matricula vigente, ou sem
+     * cobranca pendente nela, a comissao continua PENDENTE — a secretaria
+     * tenta de novo quando o indicador tiver o que abater.
+     */
+    @Transactional
+    public ComissaoIndicacaoDtos.Response aplicarComissaoIndicacao(Long id) {
+        ComissaoIndicacao comissao = comissaoIndicacaoRepository.findById(id)
+                .orElseThrow(() -> RecursoNaoEncontradoException.de("Comissao de indicacao", id));
+
+        if (comissao.getStatus() != StatusComissao.PENDENTE) {
+            throw new RegraNegocioException("Esta comissao ja foi aplicada.");
+        }
+
+        Usuario indicador = comissao.getIndicador();
+        Assinatura vigente = repository.buscarVigentePorAluno(indicador.getId())
+                .orElseThrow(() -> new RegraNegocioException(
+                        indicador.getNome() + " nao tem matricula vigente para receber o desconto."));
+
+        Cobranca cobranca = cobrancaRepository.findByAssinaturaIdAndStatus(vigente.getId(), StatusCobranca.PENDENTE)
+                .orElseThrow(() -> new RegraNegocioException(
+                        indicador.getNome() + " nao tem cobranca pendente para aplicar o desconto."));
+
+        cobranca.aplicarDesconto(comissao.getValor());
+        comissao.aplicar(cobranca);
+
+        return ComissaoIndicacaoDtos.Response.de(comissao);
+    }
+
     /**
      * A fila de vencimentos dos proximos `dias`.
      *
@@ -411,7 +464,10 @@ public class AssinaturaService {
      */
     private void renovarAssinatura(Assinatura assinatura, LocalDate hoje) {
         cobrancaRepository.findByAssinaturaIdAndStatus(assinatura.getId(), StatusCobranca.PENDENTE)
-                .ifPresent(cobranca -> cobranca.confirmarPagamento(hoje));
+                .ifPresent(cobranca -> {
+                    cobranca.confirmarPagamento(hoje);
+                    criarComissaoIndicacaoSePrimeiroPagamento(assinatura);
+                });
         // A cobranca usa GenerationType.IDENTITY: o INSERT da proxima (logo
         // abaixo) executa na hora, mas o UPDATE desta so seria mandado ao
         // banco no commit. Sem o flush aqui, as duas cairiam juntas no
@@ -421,6 +477,28 @@ public class AssinaturaService {
 
         assinatura.renovar(hoje);
         criarCobranca(assinatura);
+    }
+
+    /**
+     * A comissao de indicacao nasce no primeiro pagamento confirmado da
+     * assinatura indicada — matricula que cancela antes de pagar nada nao
+     * recompensa quem indicou. O guard por existsByAssinaturaId (em vez de
+     * so olhar se ha outra cobranca PAGA) cobre o mesmo caso e ja evita
+     * duplicar em qualquer renovacao seguinte.
+     */
+    private void criarComissaoIndicacaoSePrimeiroPagamento(Assinatura assinatura) {
+        if (assinatura.getIndicadoPor() == null) {
+            return;
+        }
+        if (comissaoIndicacaoRepository.existsByAssinaturaId(assinatura.getId())) {
+            return;
+        }
+
+        ComissaoIndicacao comissao = new ComissaoIndicacao();
+        comissao.setAssinatura(assinatura);
+        comissao.setIndicador(assinatura.getIndicadoPor());
+        comissao.setValor(VALOR_RECOMPENSA_INDICACAO);
+        comissaoIndicacaoRepository.save(comissao);
     }
 
     /**

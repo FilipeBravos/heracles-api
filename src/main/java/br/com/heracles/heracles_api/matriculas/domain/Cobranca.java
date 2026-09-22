@@ -79,6 +79,14 @@ public class Cobranca {
         this.status = StatusCobranca.CANCELADA;
     }
 
+    /** Desconto de comissao de indicacao, aprovado pela secretaria. Nunca deixa o valor negativo. */
+    public void aplicarDesconto(BigDecimal desconto) {
+        if (this.status != StatusCobranca.PENDENTE) {
+            throw new RegraNegocioException("So se aplica desconto numa cobranca pendente.");
+        }
+        this.valor = this.valor.subtract(desconto).max(BigDecimal.ZERO);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
