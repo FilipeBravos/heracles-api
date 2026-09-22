@@ -30,6 +30,13 @@ import java.util.List;
 @Service
 public class AgendamentoPersonalService {
 
+    /**
+     * Amostra minima pra um professor entrar no ranking de avaliacoes —
+     * baixa o bastante pra nao excluir quem comecou ha pouco tempo, alta
+     * o bastante pra uma unica sessao nao decidir a posicao sozinha.
+     */
+    public static final long QUANTIDADE_MINIMA_AVALIACOES_PADRAO = 3;
+
     private final AgendamentoPersonalRepository repository;
     private final AulaGrupoRepository aulaGrupoRepository;
     private final UsuarioRepository usuarioRepository;
@@ -142,10 +149,14 @@ public class AgendamentoPersonalService {
         return AgendamentoPersonalDtos.Response.de(sessao);
     }
 
-    /** Nota media por professor, do melhor pro pior — visibilidade de qualidade de atendimento pra gestao. */
+    /**
+     * Nota media por professor, do melhor pro pior — visibilidade de
+     * qualidade de atendimento pra gestao. `quantidadeMinima` filtra quem
+     * ainda nao tem amostra suficiente pra sustentar uma media confiavel.
+     */
     @Transactional(readOnly = true)
-    public List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor() {
-        return repository.mediaAvaliacaoPorProfessor();
+    public List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor(long quantidadeMinima) {
+        return repository.mediaAvaliacaoPorProfessor(quantidadeMinima);
     }
 
     /** Mesma checagem de AulaGrupoService.garantirSemConflito, do outro lado da agenda do professor. */

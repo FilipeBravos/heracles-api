@@ -355,12 +355,12 @@ class AgendamentoPersonalServiceTest {
     // ---------------------------------------------------------------
 
     @Test
-    @DisplayName("A media por professor vem pronta do repositorio")
+    @DisplayName("A media por professor vem pronta do repositorio, com a quantidade minima repassada")
     void mediaAvaliacaoDelegaParaRepositorio() {
-        given(repository.mediaAvaliacaoPorProfessor()).willReturn(
+        given(repository.mediaAvaliacaoPorProfessor(3L)).willReturn(
                 List.of(new LinhaAvaliacaoProfessor(2L, "Prof Ana", 4.5, 10L)));
 
-        List<LinhaAvaliacaoProfessor> media = service.mediaAvaliacaoPorProfessor();
+        List<LinhaAvaliacaoProfessor> media = service.mediaAvaliacaoPorProfessor(3L);
 
         assertThat(media).hasSize(1);
         assertThat(media.get(0).professorNome()).isEqualTo("Prof Ana");
