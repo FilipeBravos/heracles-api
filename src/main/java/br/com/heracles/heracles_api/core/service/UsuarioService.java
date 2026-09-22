@@ -11,6 +11,8 @@ import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
+import br.com.heracles.heracles_api.core.dto.ResumoReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
 import br.com.heracles.heracles_api.core.dto.UsuarioResponse;
 import br.com.heracles.heracles_api.core.repository.AnamneseRepository;
@@ -50,6 +52,14 @@ public class UsuarioService {
 
     /** 3 MB decodificados. Foto de perfil, nao arquivo — nao precisa de mais que isso. */
     private static final int TAMANHO_MAXIMO_FOTO_BYTES = 3 * 1024 * 1024;
+
+    /**
+     * Janela padrao do alerta de reavaliacao fisica vencida — 3 meses,
+     * cadencia comum de reavaliacao em academia. Curta o bastante pra
+     * pegar quem parou de vir reavaliar, longa o bastante pra nao soar
+     * como cobranca de quem acabou de fazer uma.
+     */
+    public static final int DIAS_REAVALIACAO_PADRAO = 90;
 
     /**
      * Texto vigente do contrato de adesao. Fixo por enquanto — nao ha tela
@@ -406,6 +416,27 @@ public class UsuarioService {
         }
 
         return AvaliacaoFisicaDtos.Comparativo.de(de, para);
+    }
+
+    /** Cabecalho do alerta: quantos alunos com matricula ativa estao com a reavaliacao fisica vencida. */
+    @Transactional(readOnly = true)
+    public ResumoReavaliacaoVencida resumoReavaliacaoVencida(int diasSemReavaliacao) {
+        LocalDate limite = LocalDate.now().minusDays(diasSemReavaliacao);
+        return new ResumoReavaliacaoVencida(repository.countReavaliacaoVencida(limite));
+    }
+
+    /**
+     * O alerta em si: matricula ativa, mas a ultima avaliacao fisica
+     * passou da janela — indicador antecedente de qualidade de
+     * atendimento, do mesmo jeito que o alerta de ficha ausente, so que
+     * sobre acompanhamento continuo em vez de recebimento inicial.
+     */
+    @Transactional(readOnly = true)
+    public Page<LinhaReavaliacaoVencida> reavaliacaoVencida(Pageable pageable, int diasSemReavaliacao) {
+        LocalDate hoje = LocalDate.now();
+        LocalDate limite = hoje.minusDays(diasSemReavaliacao);
+        return repository.buscarReavaliacaoVencida(limite, pageable)
+                .map(bruta -> LinhaReavaliacaoVencida.de(bruta, hoje));
     }
 
     private AvaliacaoFisica buscarAvaliacaoDoAluno(Long alunoId, Long avaliacaoId) {

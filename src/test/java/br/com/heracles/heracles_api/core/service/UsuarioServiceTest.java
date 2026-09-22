@@ -18,6 +18,7 @@ import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
+import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencidaBruta;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +30,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -742,5 +745,44 @@ class UsuarioServiceTest {
 
         assertThatThrownBy(() -> servico().compararAvaliacoesFisicas(1L, 30L, 31L))
                 .isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    // ---------------------------------------------------------------
+    // Alerta de reavaliacao fisica vencida
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("O resumo repassa a contagem do repositorio")
+    void resumoReavaliacaoVencidaRepassaContagem() {
+        given(repository.countReavaliacaoVencida(any())).willReturn(3L);
+
+        assertThat(servico().resumoReavaliacaoVencida(90).total()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("Dias sem avaliacao e calculado a partir da ultima avaliacao")
+    void reavaliacaoVencidaCalculaDias() {
+        LocalDate ultimaAvaliacao = LocalDate.now().minusDays(120);
+        given(repository.buscarReavaliacaoVencida(any(), any())).willReturn(new PageImpl<>(List.of(
+                new LinhaReavaliacaoVencidaBruta(7L, "Diego Ramos", "diego@ex.com", "11999990000", ultimaAvaliacao))));
+
+        var linha = servico().reavaliacaoVencida(PageRequest.of(0, 20), 90).getContent().get(0);
+
+        assertThat(linha.alunoId()).isEqualTo(7L);
+        assertThat(linha.alunoNome()).isEqualTo("Diego Ramos");
+        assertThat(linha.ultimaAvaliacao()).isEqualTo(ultimaAvaliacao);
+        assertThat(linha.diasSemAvaliacao()).isEqualTo(120L);
+    }
+
+    @Test
+    @DisplayName("Nunca avaliado sai com dias sem avaliacao nulo, nao zero")
+    void reavaliacaoVencidaNuncaAvaliadoDiasNulo() {
+        given(repository.buscarReavaliacaoVencida(any(), any())).willReturn(new PageImpl<>(List.of(
+                new LinhaReavaliacaoVencidaBruta(8L, "Fabio Nunes", "fabio@ex.com", null, null))));
+
+        var linha = servico().reavaliacaoVencida(PageRequest.of(0, 20), 90).getContent().get(0);
+
+        assertThat(linha.ultimaAvaliacao()).isNull();
+        assertThat(linha.diasSemAvaliacao()).isNull();
     }
 }
