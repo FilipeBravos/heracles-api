@@ -9,6 +9,7 @@ import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
+import br.com.heracles.heracles_api.core.dto.Aniversariante;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
@@ -416,6 +417,13 @@ public class UsuarioService {
         }
 
         return AvaliacaoFisicaDtos.Comparativo.de(de, para);
+    }
+
+    /** Aniversariantes do mes corrente, do dia mais proximo pro mais distante. */
+    @Transactional(readOnly = true)
+    public List<Aniversariante> aniversariantesDoMes() {
+        int mes = LocalDate.now().getMonthValue();
+        return repository.buscarAniversariantesDoMes(mes).stream().map(Aniversariante::de).toList();
     }
 
     /** Cabecalho do alerta: quantos alunos com matricula ativa estao com a reavaliacao fisica vencida. */

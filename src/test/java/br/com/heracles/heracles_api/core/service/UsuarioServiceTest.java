@@ -748,6 +748,31 @@ class UsuarioServiceTest {
     }
 
     // ---------------------------------------------------------------
+    // Painel de aniversariantes do mes
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Aniversariantes do mes vem mapeados do repositorio, mes corrente")
+    void aniversariantesDoMesMapeiaLinha() {
+        Usuario aluno = new Usuario();
+        aluno.setId(7L);
+        aluno.setNome("Diego Ramos");
+        aluno.setDataNascimento(LocalDate.of(1990, LocalDate.now().getMonthValue(), 12));
+        aluno.setTelefone("11999990000");
+        aluno.setEmail("diego@ex.com");
+        given(repository.buscarAniversariantesDoMes(LocalDate.now().getMonthValue()))
+                .willReturn(List.of(aluno));
+
+        var linha = servico().aniversariantesDoMes().get(0);
+
+        assertThat(linha.alunoId()).isEqualTo(7L);
+        assertThat(linha.alunoNome()).isEqualTo("Diego Ramos");
+        assertThat(linha.dataNascimento()).isEqualTo(LocalDate.of(1990, LocalDate.now().getMonthValue(), 12));
+        assertThat(linha.telefone()).isEqualTo("11999990000");
+        assertThat(linha.email()).isEqualTo("diego@ex.com");
+    }
+
+    // ---------------------------------------------------------------
     // Alerta de reavaliacao fisica vencida
     // ---------------------------------------------------------------
 
