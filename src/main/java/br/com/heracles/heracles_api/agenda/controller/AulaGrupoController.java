@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.agenda.controller;
 
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
+import br.com.heracles.heracles_api.agenda.dto.LinhaNoShowPorHorario;
 import br.com.heracles.heracles_api.agenda.service.AulaGrupoService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -12,6 +13,8 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @Validated
 @RestController
@@ -62,5 +65,14 @@ public class AulaGrupoController {
     public AulaGrupoDtos.PainelPresenca relatorio(
             @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
         return service.relatorioPresenca(dias);
+    }
+
+    /** Taxa de no-show por horario recorrente, do pior pro melhor — pra decisao de agenda. */
+    @GetMapping("/relatorio/no-show")
+    public List<LinhaNoShowPorHorario> relatorioNoShowPorHorario(
+            @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias,
+            @RequestParam(defaultValue = "" + AulaGrupoService.QUANTIDADE_MINIMA_OCORRENCIAS_PADRAO)
+            @Min(1) @Max(50) int quantidadeMinima) {
+        return service.relatorioNoShowPorHorario(dias, quantidadeMinima);
     }
 }
