@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ComissaoIndicacaoDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaExecucaoRenovacaoAutomatica;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.service.AssinaturaService;
@@ -199,6 +200,13 @@ public class AssinaturaController {
     @PutMapping("/{id}/renovacoes")
     public AssinaturaDtos.Response renovar(@PathVariable Long id) {
         return service.renovar(id);
+    }
+
+    /** O log do job diario de renovacao automatica: quando rodou, e quantas assinaturas renovou em cada execucao. */
+    @GetMapping("/renovacoes-automaticas")
+    public Page<LinhaExecucaoRenovacaoAutomatica> historicoRenovacaoAutomatica(
+            @PageableDefault(size = 20, sort = "dataExecucao", direction = Sort.Direction.DESC) Pageable pageable) {
+        return service.historicoRenovacaoAutomatica(pageable);
     }
 
     @PutMapping("/{id}/inadimplencia")

@@ -12,6 +12,7 @@ import br.com.heracles.heracles_api.matriculas.domain.CanalLembrete;
 import br.com.heracles.heracles_api.matriculas.domain.Checkin;
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.ComissaoIndicacao;
+import br.com.heracles.heracles_api.matriculas.domain.ExecucaoRenovacaoAutomatica;
 import br.com.heracles.heracles_api.matriculas.domain.EstagioLembrete;
 import br.com.heracles.heracles_api.matriculas.domain.FormaPagamento;
 import br.com.heracles.heracles_api.matriculas.domain.LembreteEnviado;
@@ -26,6 +27,7 @@ import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ComissaoIndicacaoDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaExecucaoRenovacaoAutomatica;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
@@ -35,6 +37,7 @@ import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CheckinRepository;
 import br.com.heracles.heracles_api.matriculas.repository.CobrancaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.ComissaoIndicacaoRepository;
+import br.com.heracles.heracles_api.matriculas.repository.ExecucaoRenovacaoAutomaticaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.LembreteEnviadoRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.springframework.data.domain.Page;
@@ -91,6 +94,7 @@ public class AssinaturaService {
     private final CheckinRepository checkinRepository;
     private final LembreteEnviadoRepository lembreteRepository;
     private final ComissaoIndicacaoRepository comissaoIndicacaoRepository;
+    private final ExecucaoRenovacaoAutomaticaRepository execucaoRenovacaoRepository;
 
     public AssinaturaService(AssinaturaRepository repository,
                              PlanoRepository planoRepository,
@@ -99,7 +103,8 @@ public class AssinaturaService {
                              CobrancaRepository cobrancaRepository,
                              CheckinRepository checkinRepository,
                              LembreteEnviadoRepository lembreteRepository,
-                             ComissaoIndicacaoRepository comissaoIndicacaoRepository) {
+                             ComissaoIndicacaoRepository comissaoIndicacaoRepository,
+                             ExecucaoRenovacaoAutomaticaRepository execucaoRenovacaoRepository) {
         this.repository = repository;
         this.planoRepository = planoRepository;
         this.usuarioRepository = usuarioRepository;
@@ -108,6 +113,7 @@ public class AssinaturaService {
         this.checkinRepository = checkinRepository;
         this.lembreteRepository = lembreteRepository;
         this.comissaoIndicacaoRepository = comissaoIndicacaoRepository;
+        this.execucaoRenovacaoRepository = execucaoRenovacaoRepository;
     }
 
     @Transactional(readOnly = true)
@@ -514,7 +520,19 @@ public class AssinaturaService {
         LocalDate hoje = LocalDate.now();
         List<Assinatura> candidatas = repository.buscarParaRenovacaoAutomatica(hoje);
         candidatas.forEach(assinatura -> renovarAssinatura(assinatura, hoje));
+
+        ExecucaoRenovacaoAutomatica execucao = new ExecucaoRenovacaoAutomatica();
+        execucao.setQuantidadeRenovada(candidatas.size());
+        execucaoRenovacaoRepository.save(execucao);
+
         return candidatas.size();
+    }
+
+    /** O log em si: quando o job de renovacao automatica rodou, e quantas assinaturas renovou em cada execucao. */
+    @Transactional(readOnly = true)
+    public Page<LinhaExecucaoRenovacaoAutomatica> historicoRenovacaoAutomatica(Pageable pageable) {
+        return execucaoRenovacaoRepository.findAllByOrderByDataExecucaoDesc(pageable)
+                .map(LinhaExecucaoRenovacaoAutomatica::de);
     }
 
     /** Pagamento nao entrou: interrompe o acesso sem apagar a matricula. A cobranca continua pendente — a divida nao some. */
