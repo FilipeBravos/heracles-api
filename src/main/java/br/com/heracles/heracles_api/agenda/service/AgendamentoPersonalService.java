@@ -5,6 +5,8 @@ import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
@@ -19,8 +21,15 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Sessoes de personal: agendadas pela secretaria/administracao a pedido do
@@ -36,6 +45,12 @@ public class AgendamentoPersonalService {
      * o bastante pra uma unica sessao nao decidir a posicao sozinha.
      */
     public static final long QUANTIDADE_MINIMA_AVALIACOES_PADRAO = 3;
+
+    /** Menos que isso de antecedencia, o cancelamento conta como "em cima da hora". */
+    public static final long LIMITE_HORAS_CANCELAMENTO_EM_CIMA_DA_HORA = 24;
+
+    /** Mesmo raciocinio de QUANTIDADE_MINIMA_AVALIACOES_PADRAO, agora para a taxa de cancelamento. */
+    public static final long QUANTIDADE_MINIMA_SESSOES_CANCELAMENTO_PADRAO = 4;
 
     private final AgendamentoPersonalRepository repository;
     private final AulaGrupoRepository aulaGrupoRepository;
@@ -110,7 +125,7 @@ public class AgendamentoPersonalService {
     public AgendamentoPersonalDtos.Response cancelar(Long id) {
         AgendamentoPersonal sessao = repository.findById(id)
                 .orElseThrow(() -> RecursoNaoEncontradoException.de("Sessao de personal", id));
-        sessao.cancelar();
+        sessao.cancelar(LocalDateTime.now());
         return AgendamentoPersonalDtos.Response.de(sessao);
     }
 
@@ -157,6 +172,50 @@ public class AgendamentoPersonalService {
     @Transactional(readOnly = true)
     public List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor(long quantidadeMinima) {
         return repository.mediaAvaliacaoPorProfessor(quantidadeMinima);
+    }
+
+    /**
+     * Taxa de cancelamento em cima da hora por professor, do pior pro
+     * melhor. So sessoes finalizadas (realizadas ou canceladas) entram no
+     * denominador — uma ainda AGENDADO nao aconteceu nem foi desistida
+     * ainda, entao nao diz nada sobre a taxa. `quantidadeMinima` filtra
+     * quem ainda nao tem amostra suficiente, mesmo raciocinio do ranking
+     * de avaliacoes.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaCancelamentoProfessor> taxaCancelamentoPorProfessor(int dias, long quantidadeMinima) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        List<LinhaSessaoPersonalFinalizada> sessoes = repository.sessoesFinalizadasDesde(desde);
+
+        Map<Long, List<LinhaSessaoPersonalFinalizada>> porProfessor = sessoes.stream()
+                .collect(Collectors.groupingBy(LinhaSessaoPersonalFinalizada::professorId));
+
+        return porProfessor.entrySet().stream()
+                .map(entry -> linhaCancelamento(entry.getValue()))
+                .filter(linha -> linha.totalSessoes() >= quantidadeMinima)
+                .sorted(Comparator.comparing(LinhaCancelamentoProfessor::taxaCancelamento).reversed())
+                .toList();
+    }
+
+    private LinhaCancelamentoProfessor linhaCancelamento(List<LinhaSessaoPersonalFinalizada> sessoes) {
+        long total = sessoes.size();
+        long emCimaDaHora = sessoes.stream().filter(this::foiCanceladaEmCimaDaHora).count();
+        BigDecimal taxa = total > 0
+                ? BigDecimal.valueOf(emCimaDaHora * 100).divide(BigDecimal.valueOf(total), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        LinhaSessaoPersonalFinalizada primeira = sessoes.get(0);
+        return new LinhaCancelamentoProfessor(
+                primeira.professorId(), primeira.professorNome(), total, emCimaDaHora, taxa);
+    }
+
+    /** Canceladas antes desta coluna existir tem canceladoEm nulo — antecedencia desconhecida, nao "em cima da hora". */
+    private boolean foiCanceladaEmCimaDaHora(LinhaSessaoPersonalFinalizada sessao) {
+        if (sessao.status() != StatusAgendamento.CANCELADO || sessao.canceladoEm() == null) {
+            return false;
+        }
+        return Duration.between(sessao.canceladoEm(), sessao.dataHora()).toHours()
+                < LIMITE_HORAS_CANCELAMENTO_EM_CIMA_DA_HORA;
     }
 
     /** Mesma checagem de AulaGrupoService.garantirSemConflito, do outro lado da agenda do professor. */

@@ -3,12 +3,14 @@ package br.com.heracles.heracles_api.agenda.repository;
 import br.com.heracles.heracles_api.agenda.domain.AgendamentoPersonal;
 import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface AgendamentoPersonalRepository extends JpaRepository<AgendamentoPersonal, Long> {
@@ -41,4 +43,20 @@ public interface AgendamentoPersonalRepository extends JpaRepository<Agendamento
             order by avg(s.notaAvaliacao) desc
             """)
     List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor(long minimo);
+
+    /**
+     * Sessoes ja finalizadas (realizadas ou canceladas) desde uma data — a
+     * classificacao de "cancelamento em cima da hora" e feita em Java, a
+     * partir de dataHora e canceladoEm, mesmo raciocinio de
+     * AulaGrupoService.relatorioNoShowPorHorario.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada(
+                       p.id, p.nome, s.status, s.dataHora, s.canceladoEm)
+            from AgendamentoPersonal s join s.professor p
+            where s.status in (br.com.heracles.heracles_api.agenda.domain.StatusAgendamento.REALIZADA,
+                               br.com.heracles.heracles_api.agenda.domain.StatusAgendamento.CANCELADO)
+              and s.dataHora >= :desde
+            """)
+    List<LinhaSessaoPersonalFinalizada> sessoesFinalizadasDesde(LocalDateTime desde);
 }
