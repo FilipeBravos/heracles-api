@@ -8,7 +8,9 @@ import br.com.heracles.heracles_api.operacoes.domain.*;
 import br.com.heracles.heracles_api.operacoes.dto.EquipamentoDtos;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaEquipamentoProblematico;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPorUnidade;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPreventiva;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaTempoResolucao;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaUltimaManutencao;
 import br.com.heracles.heracles_api.operacoes.repository.ChamadoManutencaoRepository;
 import br.com.heracles.heracles_api.operacoes.repository.EquipamentoRepository;
 import org.springframework.data.domain.Page;
@@ -22,7 +24,11 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class EquipamentoService {
@@ -64,6 +70,7 @@ public class EquipamentoService {
         equipamento.setUnidade(unidade);
         equipamento.setNome(request.nome().trim());
         equipamento.setStatusAtual(StatusEquipamento.OK);
+        equipamento.setIntervaloDiasManutencao(request.intervaloDiasManutencao());
 
         return EquipamentoDtos.Response.de(repository.save(equipamento));
     }
@@ -73,6 +80,7 @@ public class EquipamentoService {
         Equipamento equipamento = carregar(id);
         equipamento.setUnidade(carregarUnidade(request.unidadeId()));
         equipamento.setNome(request.nome().trim());
+        equipamento.setIntervaloDiasManutencao(request.intervaloDiasManutencao());
         // O status nao se edita aqui: ele e consequencia dos chamados.
         return EquipamentoDtos.Response.de(equipamento);
     }
@@ -147,6 +155,37 @@ public class EquipamentoService {
         return new EquipamentoDtos.PainelManutencao(
                 dias, quantidadeChamados, quantidadeAbertos, custoTotal, tempoMedioResolucaoHoras,
                 maisProblematicos, porUnidade);
+    }
+
+    /**
+     * Manutencao preventiva vencida ou vencendo hoje: equipamentos com
+     * intervalo configurado cuja proxima revisao — ultimo chamado
+     * resolvido, ou o cadastro se nunca teve nenhum — ja chegou.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaManutencaoPreventiva> relatorioManutencaoPreventiva() {
+        List<Equipamento> equipamentos = repository.findByIntervaloDiasManutencaoIsNotNull();
+        Map<Long, LocalDateTime> ultimasManutencoes = chamadoRepository.ultimaResolucaoPorEquipamento().stream()
+                .collect(Collectors.toMap(LinhaUltimaManutencao::equipamentoId, LinhaUltimaManutencao::ultimaResolucao));
+
+        LocalDate hoje = LocalDate.now();
+
+        return equipamentos.stream()
+                .map(equipamento -> {
+                    LocalDateTime ultima = ultimasManutencoes.getOrDefault(
+                            equipamento.getId(), equipamento.getCadastradoEm());
+                    LocalDate ultimaData = ultima.toLocalDate();
+                    LocalDate proxima = ultimaData.plusDays(equipamento.getIntervaloDiasManutencao());
+                    long diasAtraso = ChronoUnit.DAYS.between(proxima, hoje);
+
+                    return new LinhaManutencaoPreventiva(
+                            equipamento.getId(), equipamento.getNome(),
+                            equipamento.getUnidade().getId(), equipamento.getUnidade().getNome(),
+                            equipamento.getIntervaloDiasManutencao(), ultimaData, proxima, diasAtraso);
+                })
+                .filter(linha -> linha.diasAtraso() >= 0)
+                .sorted(Comparator.comparingLong(LinhaManutencaoPreventiva::diasAtraso).reversed())
+                .toList();
     }
 
     private Equipamento carregar(Long id) {

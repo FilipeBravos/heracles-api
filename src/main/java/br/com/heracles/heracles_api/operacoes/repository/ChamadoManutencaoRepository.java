@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.operacoes.domain.StatusChamado;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaEquipamentoProblematico;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPorUnidade;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaTempoResolucao;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaUltimaManutencao;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -58,4 +59,13 @@ public interface ChamadoManutencaoRepository extends JpaRepository<ChamadoManute
             order by coalesce(sum(c.custoReparo), 0) desc
             """)
     List<LinhaManutencaoPorUnidade> manutencaoPorUnidadeDesde(LocalDateTime desde);
+
+    /** A resolucao mais recente de cada equipamento que ja teve pelo menos um chamado resolvido. */
+    @Query("""
+            select new br.com.heracles.heracles_api.operacoes.dto.LinhaUltimaManutencao(e.id, max(c.dataResolucao))
+            from ChamadoManutencao c join c.equipamento e
+            where c.status = 'RESOLVIDO'
+            group by e.id
+            """)
+    List<LinhaUltimaManutencao> ultimaResolucaoPorEquipamento();
 }
