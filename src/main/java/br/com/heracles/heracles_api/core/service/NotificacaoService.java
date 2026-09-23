@@ -5,6 +5,8 @@ import br.com.heracles.heracles_api.core.domain.StatusUsuario;
 import br.com.heracles.heracles_api.core.domain.TipoNotificacao;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura;
+import br.com.heracles.heracles_api.core.dto.LinhaTaxaLeituraNotificacao;
 import br.com.heracles.heracles_api.core.dto.NotificacaoDtos;
 import br.com.heracles.heracles_api.core.repository.NotificacaoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
@@ -16,10 +18,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * A central de notificacoes: quem le as suas, e os jobs que as geram.
@@ -71,12 +79,54 @@ public class NotificacaoService {
         if (!notificacao.getDestinatario().getId().equals(eu.getId())) {
             throw RecursoNaoEncontradoException.de("Notificacao", notificacaoId);
         }
-        notificacao.setLida(true);
+        notificacao.marcarComoLida(LocalDateTime.now());
     }
 
     @Transactional
     public void marcarTodasComoLidas(String emailAutenticado) {
-        repository.marcarTodasComoLidas(eu(emailAutenticado).getId());
+        repository.marcarTodasComoLidas(eu(emailAutenticado).getId(), LocalDateTime.now());
+    }
+
+    /**
+     * Taxa de leitura por tipo de notificacao no periodo, do pior pro
+     * melhor, com o tempo medio ate a leitura entre as que tem lidaEm
+     * registrada — visibilidade de gestao, nao uma tela de usuario comum.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaTaxaLeituraNotificacao> taxaLeituraPorTipo(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        List<LinhaNotificacaoParaTaxaLeitura> linhas = repository.notificacoesParaTaxaLeituraDesde(desde);
+
+        Map<TipoNotificacao, List<LinhaNotificacaoParaTaxaLeitura>> porTipo = linhas.stream()
+                .collect(Collectors.groupingBy(LinhaNotificacaoParaTaxaLeitura::tipo));
+
+        return porTipo.entrySet().stream()
+                .map(entry -> linhaTaxaLeitura(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparing(LinhaTaxaLeituraNotificacao::taxaLeitura))
+                .toList();
+    }
+
+    private LinhaTaxaLeituraNotificacao linhaTaxaLeitura(TipoNotificacao tipo, List<LinhaNotificacaoParaTaxaLeitura> linhas) {
+        long total = linhas.size();
+        List<LinhaNotificacaoParaTaxaLeitura> lidas = linhas.stream()
+                .filter(LinhaNotificacaoParaTaxaLeitura::lida)
+                .toList();
+
+        BigDecimal taxaLeitura = total > 0
+                ? BigDecimal.valueOf(lidas.size() * 100).divide(BigDecimal.valueOf(total), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        // So entra quem tem lidaEm — lida antes desta coluna existir nao entra na media, nunca e inferida.
+        List<Long> minutosAteLeitura = lidas.stream()
+                .filter(l -> l.lidaEm() != null)
+                .map(l -> Duration.between(l.criadaEm(), l.lidaEm()).toMinutes())
+                .toList();
+        BigDecimal tempoMedioLeituraHoras = minutosAteLeitura.isEmpty()
+                ? null
+                : BigDecimal.valueOf(minutosAteLeitura.stream().mapToLong(Long::longValue).average().orElse(0) / 60.0)
+                        .setScale(1, RoundingMode.HALF_UP);
+
+        return new LinhaTaxaLeituraNotificacao(tipo, total, lidas.size(), taxaLeitura, tempoMedioLeituraHoras);
     }
 
     // ---------------------------------------------------------------

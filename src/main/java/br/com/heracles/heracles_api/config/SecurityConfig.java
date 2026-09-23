@@ -189,6 +189,10 @@ public class SecurityConfig {
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers("/api/sessoes-personal/**").hasAnyRole("ADMIN", "SECRETARIA")
 
+                        // /api/eu/notificacoes/** ja cai na regra authenticated() —
+                        // isto aqui e a visibilidade de gestao sobre a central inteira.
+                        .requestMatchers("/api/notificacoes/**").hasAnyRole("ADMIN", "SECRETARIA")
+
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))

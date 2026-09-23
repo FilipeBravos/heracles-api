@@ -42,6 +42,10 @@ public class Notificacao {
 
     private boolean lida;
 
+    /** Nula ate ser lida — nunca inferida a partir de outra data. */
+    @Column(name = "lida_em")
+    private LocalDateTime lidaEm;
+
     @Column(name = "referencia_id")
     private Long referenciaId;
 
@@ -51,6 +55,11 @@ public class Notificacao {
     @PrePersist
     public void prePersist() {
         if (this.criadaEm == null) this.criadaEm = LocalDateTime.now();
+    }
+
+    public void marcarComoLida(LocalDateTime agora) {
+        this.lida = true;
+        this.lidaEm = agora;
     }
 
     @Override

@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.core.repository;
 
 import br.com.heracles.heracles_api.core.domain.Notificacao;
 import br.com.heracles.heracles_api.core.domain.TipoNotificacao;
+import br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface NotificacaoRepository extends JpaRepository<Notificacao, Long> {
 
@@ -33,6 +35,18 @@ public interface NotificacaoRepository extends JpaRepository<Notificacao, Long> 
     boolean existeDesde(Long destinatarioId, TipoNotificacao tipo, Long referenciaId, LocalDateTime desde);
 
     @Modifying
-    @Query("update Notificacao n set n.lida = true where n.destinatario.id = :destinatarioId and n.lida = false")
-    void marcarTodasComoLidas(Long destinatarioId);
+    @Query("""
+            update Notificacao n set n.lida = true, n.lidaEm = :agora
+            where n.destinatario.id = :destinatarioId and n.lida = false
+            """)
+    void marcarTodasComoLidas(Long destinatarioId, LocalDateTime agora);
+
+    /** Notificacoes criadas desde uma data, com o suficiente pra taxa de leitura por tipo. */
+    @Query("""
+            select new br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura(
+                       n.tipo, n.lida, n.criadaEm, n.lidaEm)
+            from Notificacao n
+            where n.criadaEm >= :desde
+            """)
+    List<LinhaNotificacaoParaTaxaLeitura> notificacoesParaTaxaLeituraDesde(LocalDateTime desde);
 }

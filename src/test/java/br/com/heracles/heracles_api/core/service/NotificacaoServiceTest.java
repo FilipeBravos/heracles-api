@@ -101,6 +101,7 @@ class NotificacaoServiceTest {
         service.marcarComoLida(aluno.getEmail(), 5L);
 
         assertThat(minha.isLida()).isTrue();
+        assertThat(minha.getLidaEm()).isNotNull();
     }
 
     // ---------------------------------------------------------------
@@ -183,6 +184,67 @@ class NotificacaoServiceTest {
         assertThat(captor.getValue().getDestinatario()).isEqualTo(secretaria);
         assertThat(captor.getValue().getReferenciaId()).isEqualTo(aluno.getId());
         assertThat(captor.getValue().getMensagem()).contains("Marina Alves");
+    }
+
+    // ---------------------------------------------------------------
+    // Taxa de leitura
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("A taxa de leitura e o percentual de lidas, e o tempo medio so conta quem tem lidaEm")
+    void taxaLeituraCalculaPercentualETempoMedio() {
+        java.time.LocalDateTime criada = java.time.LocalDateTime.of(2026, 3, 1, 10, 0);
+        given(repository.notificacoesParaTaxaLeituraDesde(any())).willReturn(List.of(
+                new br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura(
+                        TipoNotificacao.MATRICULA_VENCENDO, true, criada, criada.plusHours(4)),
+                new br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura(
+                        TipoNotificacao.MATRICULA_VENCENDO, true, criada, criada.plusHours(8)),
+                new br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura(
+                        TipoNotificacao.MATRICULA_VENCENDO, false, criada, null)));
+
+        List<br.com.heracles.heracles_api.core.dto.LinhaTaxaLeituraNotificacao> resultado =
+                service.taxaLeituraPorTipo(90);
+
+        assertThat(resultado).hasSize(1);
+        var linha = resultado.get(0);
+        assertThat(linha.total()).isEqualTo(3);
+        assertThat(linha.lidas()).isEqualTo(2);
+        // 2 de 3 lidas = 66,7%.
+        assertThat(linha.taxaLeitura()).isEqualByComparingTo("66.7");
+        // Media de 4h e 8h = 6h.
+        assertThat(linha.tempoMedioLeituraHoras()).isEqualByComparingTo("6.0");
+    }
+
+    @Test
+    @DisplayName("Lida antes da coluna lidaEm existir fica fora da media de tempo, mas conta na taxa")
+    void taxaLeituraIgnoraLidaEmNulaNaMedia() {
+        java.time.LocalDateTime criada = java.time.LocalDateTime.of(2026, 3, 1, 10, 0);
+        given(repository.notificacoesParaTaxaLeituraDesde(any())).willReturn(List.of(
+                new br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura(
+                        TipoNotificacao.ANIVERSARIO, true, criada, null)));
+
+        List<br.com.heracles.heracles_api.core.dto.LinhaTaxaLeituraNotificacao> resultado =
+                service.taxaLeituraPorTipo(90);
+
+        assertThat(resultado.get(0).taxaLeitura()).isEqualByComparingTo("100.0");
+        assertThat(resultado.get(0).tempoMedioLeituraHoras()).isNull();
+    }
+
+    @Test
+    @DisplayName("Ordena do pior pro melhor")
+    void taxaLeituraOrdenaDoPiorProMelhor() {
+        java.time.LocalDateTime criada = java.time.LocalDateTime.of(2026, 3, 1, 10, 0);
+        given(repository.notificacoesParaTaxaLeituraDesde(any())).willReturn(List.of(
+                new br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura(
+                        TipoNotificacao.ANIVERSARIO, true, criada, criada.plusHours(1)),
+                new br.com.heracles.heracles_api.core.dto.LinhaNotificacaoParaTaxaLeitura(
+                        TipoNotificacao.ANAMNESE_PENDENTE, false, criada, null)));
+
+        List<br.com.heracles.heracles_api.core.dto.LinhaTaxaLeituraNotificacao> resultado =
+                service.taxaLeituraPorTipo(90);
+
+        assertThat(resultado).extracting(br.com.heracles.heracles_api.core.dto.LinhaTaxaLeituraNotificacao::tipo)
+                .containsExactly(TipoNotificacao.ANAMNESE_PENDENTE, TipoNotificacao.ANIVERSARIO);
     }
 
     private Assinatura assinaturaDe(LocalDate vencimento) {
