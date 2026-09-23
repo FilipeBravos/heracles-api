@@ -10,4 +10,9 @@ public interface HorarioProfessorRepository extends JpaRepository<HorarioProfess
 
     @EntityGraph(attributePaths = {"unidade"})
     List<HorarioProfessor> findByProfessorIdOrderByDiaSemanaAscHoraInicioAsc(Long professorId);
+
+    /** Todos os blocos cadastrados, de todos os professores — para a taxa de ocupacao da agenda. */
+    @Override
+    @EntityGraph(attributePaths = {"professor"})
+    List<HorarioProfessor> findAll();
 }

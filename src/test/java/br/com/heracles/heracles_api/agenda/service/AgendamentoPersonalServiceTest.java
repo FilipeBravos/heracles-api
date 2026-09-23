@@ -2,14 +2,19 @@ package br.com.heracles.heracles_api.agenda.service;
 
 import br.com.heracles.heracles_api.agenda.domain.AgendamentoPersonal;
 import br.com.heracles.heracles_api.agenda.domain.AulaGrupo;
+import br.com.heracles.heracles_api.agenda.domain.DiaSemana;
+import br.com.heracles.heracles_api.agenda.domain.HorarioProfessor;
 import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaMinutosOcupadosProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
+import br.com.heracles.heracles_api.agenda.repository.HorarioProfessorRepository;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Unidade;
 import br.com.heracles.heracles_api.core.domain.Usuario;
@@ -44,6 +49,7 @@ class AgendamentoPersonalServiceTest {
 
     @Mock private AgendamentoPersonalRepository repository;
     @Mock private AulaGrupoRepository aulaGrupoRepository;
+    @Mock private HorarioProfessorRepository horarioProfessorRepository;
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private UnidadeRepository unidadeRepository;
 
@@ -56,7 +62,8 @@ class AgendamentoPersonalServiceTest {
 
     @BeforeEach
     void preparar() {
-        service = new AgendamentoPersonalService(repository, aulaGrupoRepository, usuarioRepository, unidadeRepository);
+        service = new AgendamentoPersonalService(
+                repository, aulaGrupoRepository, horarioProfessorRepository, usuarioRepository, unidadeRepository);
 
         aluno = new Usuario();
         aluno.setId(1L);
@@ -445,6 +452,71 @@ class AgendamentoPersonalServiceTest {
         List<LinhaCancelamentoProfessor> resultado = service.taxaCancelamentoPorProfessor(90, 1L);
 
         assertThat(resultado).extracting(LinhaCancelamentoProfessor::professorNome)
+                .containsExactly("Prof Bia", "Prof Ana");
+    }
+
+    // ---------------------------------------------------------------
+    // Taxa de ocupacao da agenda
+    // ---------------------------------------------------------------
+
+    private HorarioProfessor bloco(Usuario prof, DiaSemana dia, int horaInicio, int horaFim) {
+        HorarioProfessor horario = new HorarioProfessor();
+        horario.setProfessor(prof);
+        horario.setDiaSemana(dia);
+        horario.setHoraInicio(java.time.LocalTime.of(horaInicio, 0));
+        horario.setHoraFim(java.time.LocalTime.of(horaFim, 0));
+        return horario;
+    }
+
+    @Test
+    @DisplayName("Ocupacao compara as horas configuradas com as horas realizadas no periodo")
+    void ocupacaoComparaConfiguradoComRealizado() {
+        // 4h na segunda + 4h na quarta = 8h semanais.
+        given(horarioProfessorRepository.findAll()).willReturn(List.of(
+                bloco(professor, DiaSemana.SEGUNDA, 8, 12),
+                bloco(professor, DiaSemana.QUARTA, 8, 12)));
+        given(repository.minutosOcupadosPorProfessorDesde(any())).willReturn(
+                List.of(new LinhaMinutosOcupadosProfessor(2L, 240L)));
+
+        List<LinhaOcupacaoPersonal> resultado = service.ocupacaoPorProfessor(7);
+
+        assertThat(resultado).hasSize(1);
+        assertThat(resultado.get(0).horasDisponiveis()).isEqualByComparingTo("8.0");
+        assertThat(resultado.get(0).horasOcupadas()).isEqualByComparingTo("4.0");
+        assertThat(resultado.get(0).taxaOcupacao()).isEqualByComparingTo("50.0");
+    }
+
+    @Test
+    @DisplayName("Sem sessao realizada no periodo, a ocupacao e zero")
+    void ocupacaoZeroSemSessaoRealizada() {
+        given(horarioProfessorRepository.findAll()).willReturn(List.of(
+                bloco(professor, DiaSemana.SEGUNDA, 8, 12)));
+        given(repository.minutosOcupadosPorProfessorDesde(any())).willReturn(List.of());
+
+        List<LinhaOcupacaoPersonal> resultado = service.ocupacaoPorProfessor(7);
+
+        assertThat(resultado.get(0).horasOcupadas()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(resultado.get(0).taxaOcupacao()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("Ordena do menos ocupado pro mais ocupado")
+    void ocupacaoOrdenaDoMenosProMaisOcupado() {
+        Usuario outroProfessor = new Usuario();
+        outroProfessor.setId(9L);
+        outroProfessor.setNome("Prof Bia");
+
+        given(horarioProfessorRepository.findAll()).willReturn(List.of(
+                bloco(professor, DiaSemana.SEGUNDA, 8, 12),
+                bloco(outroProfessor, DiaSemana.SEGUNDA, 8, 12)));
+        given(repository.minutosOcupadosPorProfessorDesde(any())).willReturn(List.of(
+                // Prof Ana: 4h de 4h = 100%. Prof Bia: 1h de 4h = 25%.
+                new LinhaMinutosOcupadosProfessor(2L, 240L),
+                new LinhaMinutosOcupadosProfessor(9L, 60L)));
+
+        List<LinhaOcupacaoPersonal> resultado = service.ocupacaoPorProfessor(7);
+
+        assertThat(resultado).extracting(LinhaOcupacaoPersonal::professorNome)
                 .containsExactly("Prof Bia", "Prof Ana");
     }
 

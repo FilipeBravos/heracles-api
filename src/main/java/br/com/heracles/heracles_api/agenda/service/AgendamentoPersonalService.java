@@ -1,14 +1,18 @@
 package br.com.heracles.heracles_api.agenda.service;
 
 import br.com.heracles.heracles_api.agenda.domain.AgendamentoPersonal;
+import br.com.heracles.heracles_api.agenda.domain.HorarioProfessor;
 import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaMinutosOcupadosProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
+import br.com.heracles.heracles_api.agenda.repository.HorarioProfessorRepository;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Unidade;
 import br.com.heracles.heracles_api.core.domain.Usuario;
@@ -54,15 +58,18 @@ public class AgendamentoPersonalService {
 
     private final AgendamentoPersonalRepository repository;
     private final AulaGrupoRepository aulaGrupoRepository;
+    private final HorarioProfessorRepository horarioProfessorRepository;
     private final UsuarioRepository usuarioRepository;
     private final UnidadeRepository unidadeRepository;
 
     public AgendamentoPersonalService(AgendamentoPersonalRepository repository,
                                       AulaGrupoRepository aulaGrupoRepository,
+                                      HorarioProfessorRepository horarioProfessorRepository,
                                       UsuarioRepository usuarioRepository,
                                       UnidadeRepository unidadeRepository) {
         this.repository = repository;
         this.aulaGrupoRepository = aulaGrupoRepository;
+        this.horarioProfessorRepository = horarioProfessorRepository;
         this.usuarioRepository = usuarioRepository;
         this.unidadeRepository = unidadeRepository;
     }
@@ -216,6 +223,52 @@ public class AgendamentoPersonalService {
         }
         return Duration.between(sessao.canceladoEm(), sessao.dataHora()).toHours()
                 < LIMITE_HORAS_CANCELAMENTO_EM_CIMA_DA_HORA;
+    }
+
+    /**
+     * Taxa de ocupacao da agenda de personal: horas disponiveis (a soma dos
+     * blocos de HorarioProfessor, escalada pro periodo) contra horas
+     * efetivamente ocupadas por sessoes realizadas. Do menos ocupado pro
+     * mais ocupado — agenda ociosa e capacidade que sobra sem uso, o
+     * oposto do que a taxa de cancelamento mede.
+     *
+     * So entra professor com pelo menos um HorarioProfessor cadastrado:
+     * sem disponibilidade configurada, nao ha contra o que comparar.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaOcupacaoPersonal> ocupacaoPorProfessor(int dias) {
+        Map<Long, List<HorarioProfessor>> horariosPorProfessor = horarioProfessorRepository.findAll().stream()
+                .collect(Collectors.groupingBy(h -> h.getProfessor().getId()));
+
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        Map<Long, Long> minutosOcupados = repository.minutosOcupadosPorProfessorDesde(desde).stream()
+                .collect(Collectors.toMap(LinhaMinutosOcupadosProfessor::professorId,
+                        LinhaMinutosOcupadosProfessor::minutosOcupados));
+
+        double semanas = dias / 7.0;
+
+        return horariosPorProfessor.entrySet().stream()
+                .map(entry -> linhaOcupacao(entry.getKey(), entry.getValue(), minutosOcupados, semanas))
+                .sorted(Comparator.comparing(LinhaOcupacaoPersonal::taxaOcupacao))
+                .toList();
+    }
+
+    private LinhaOcupacaoPersonal linhaOcupacao(Long professorId, List<HorarioProfessor> blocos,
+                                                Map<Long, Long> minutosOcupados, double semanas) {
+        long minutosSemanais = blocos.stream()
+                .mapToLong(h -> Duration.between(h.getHoraInicio(), h.getHoraFim()).toMinutes())
+                .sum();
+
+        BigDecimal horasDisponiveis = BigDecimal.valueOf(minutosSemanais * semanas / 60.0)
+                .setScale(1, RoundingMode.HALF_UP);
+        BigDecimal horasOcupadas = BigDecimal.valueOf(minutosOcupados.getOrDefault(professorId, 0L) / 60.0)
+                .setScale(1, RoundingMode.HALF_UP);
+        BigDecimal taxa = horasDisponiveis.compareTo(BigDecimal.ZERO) > 0
+                ? horasOcupadas.multiply(BigDecimal.valueOf(100)).divide(horasDisponiveis, 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        return new LinhaOcupacaoPersonal(
+                professorId, blocos.get(0).getProfessor().getNome(), horasDisponiveis, horasOcupadas, taxa);
     }
 
     /** Mesma checagem de AulaGrupoService.garantirSemConflito, do outro lado da agenda do professor. */
