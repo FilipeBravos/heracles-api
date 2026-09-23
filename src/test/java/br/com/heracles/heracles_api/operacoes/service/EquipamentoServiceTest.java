@@ -7,7 +7,9 @@ import br.com.heracles.heracles_api.operacoes.domain.*;
 import br.com.heracles.heracles_api.operacoes.dto.EquipamentoDtos;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaEquipamentoProblematico;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPorUnidade;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPreventiva;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaTempoResolucao;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaUltimaManutencao;
 import br.com.heracles.heracles_api.operacoes.repository.ChamadoManutencaoRepository;
 import br.com.heracles.heracles_api.operacoes.repository.EquipamentoRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -130,7 +132,7 @@ class EquipamentoServiceTest {
         given(unidadeRepository.findById(1L)).willReturn(Optional.of(esteira.getUnidade()));
         esteira.setStatusAtual(StatusEquipamento.EM_MANUTENCAO);
 
-        service.atualizar(7L, new EquipamentoDtos.Request(1L, "Esteira 03 - Profissional"));
+        service.atualizar(7L, new EquipamentoDtos.Request(1L, "Esteira 03 - Profissional", null));
 
         // Renomear um aparelho não pode devolvê-lo à operação por acidente.
         assertThat(esteira.getNome()).isEqualTo("Esteira 03 - Profissional");
@@ -183,5 +185,63 @@ class EquipamentoServiceTest {
         assertThat(relatorio.tempoMedioResolucaoHoras()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(relatorio.maisProblematicos()).isEmpty();
         assertThat(relatorio.porUnidade()).isEmpty();
+    }
+
+    // ---------------------------------------------------------------
+    // Manutencao preventiva
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Sem chamado resolvido, a ancora e o cadastro do equipamento")
+    void relatorioUsaCadastroComoAncoraSemChamadoResolvido() {
+        esteira.setIntervaloDiasManutencao(30);
+        esteira.setCadastradoEm(LocalDateTime.now().minusDays(40));
+        given(repository.findByIntervaloDiasManutencaoIsNotNull()).willReturn(List.of(esteira));
+        given(chamadoRepository.ultimaResolucaoPorEquipamento()).willReturn(List.of());
+
+        List<LinhaManutencaoPreventiva> relatorio = service.relatorioManutencaoPreventiva();
+
+        assertThat(relatorio).hasSize(1);
+        assertThat(relatorio.get(0).equipamentoId()).isEqualTo(7L);
+        // 40 dias desde o cadastro, intervalo de 30: 10 dias de atraso.
+        assertThat(relatorio.get(0).diasAtraso()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("Com chamado resolvido, a ancora e a resolucao mais recente, nao o cadastro")
+    void relatorioPrefereUltimaResolucaoAoCadastro() {
+        esteira.setIntervaloDiasManutencao(30);
+        // Cadastro antigo demais faria parecer vencido; a resolucao recente diz que nao esta.
+        esteira.setCadastradoEm(LocalDateTime.now().minusDays(200));
+        given(repository.findByIntervaloDiasManutencaoIsNotNull()).willReturn(List.of(esteira));
+        given(chamadoRepository.ultimaResolucaoPorEquipamento()).willReturn(
+                List.of(new LinhaUltimaManutencao(7L, LocalDateTime.now().minusDays(10))));
+
+        List<LinhaManutencaoPreventiva> relatorio = service.relatorioManutencaoPreventiva();
+
+        // 10 dias desde a resolucao, intervalo de 30: ainda nao venceu.
+        assertThat(relatorio).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Ordena do mais atrasado pro menos atrasado")
+    void relatorioOrdenaDoMaisAtrasadoProMenos() {
+        Equipamento leg = new Equipamento();
+        leg.setId(9L);
+        leg.setNome("Leg Press");
+        leg.setUnidade(esteira.getUnidade());
+        leg.setIntervaloDiasManutencao(30);
+        leg.setCadastradoEm(LocalDateTime.now().minusDays(35));
+
+        esteira.setIntervaloDiasManutencao(30);
+        esteira.setCadastradoEm(LocalDateTime.now().minusDays(60));
+
+        given(repository.findByIntervaloDiasManutencaoIsNotNull()).willReturn(List.of(leg, esteira));
+        given(chamadoRepository.ultimaResolucaoPorEquipamento()).willReturn(List.of());
+
+        List<LinhaManutencaoPreventiva> relatorio = service.relatorioManutencaoPreventiva();
+
+        assertThat(relatorio).extracting(LinhaManutencaoPreventiva::equipamentoId)
+                .containsExactly(7L, 9L);
     }
 }

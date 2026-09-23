@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.operacoes.controller;
 
 import br.com.heracles.heracles_api.operacoes.dto.EquipamentoDtos;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaManutencaoPreventiva;
 import br.com.heracles.heracles_api.operacoes.service.EquipamentoService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -43,6 +44,12 @@ public class EquipamentoController {
     public EquipamentoDtos.PainelManutencao relatorio(
             @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
         return service.relatorio(dias);
+    }
+
+    /** Equipamentos com manutencao preventiva vencida ou vencendo, do mais atrasado pro mais recente. */
+    @GetMapping("/relatorio/manutencao-preventiva")
+    public List<LinhaManutencaoPreventiva> relatorioManutencaoPreventiva() {
+        return service.relatorioManutencaoPreventiva();
     }
 
     @PostMapping

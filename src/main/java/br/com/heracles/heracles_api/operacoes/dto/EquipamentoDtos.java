@@ -21,7 +21,12 @@ public final class EquipamentoDtos {
 
             @NotBlank(message = "O nome do equipamento e obrigatorio")
             @Size(max = 100, message = "O nome deve ter no maximo 100 caracteres")
-            String nome
+            String nome,
+
+            /** Nulo: sem acompanhamento preventivo configurado. */
+            @Min(value = 1, message = "O intervalo deve ser de pelo menos 1 dia")
+            @Max(value = 3650, message = "Intervalo acima do limite")
+            Integer intervaloDiasManutencao
     ) {
         // O status nao entra aqui de proposito: ele e consequencia dos
         // chamados de manutencao, nao um campo editavel a mao.
@@ -46,7 +51,8 @@ public final class EquipamentoDtos {
             Long unidadeId,
             String unidadeNome,
             String nome,
-            StatusEquipamento statusAtual
+            StatusEquipamento statusAtual,
+            Integer intervaloDiasManutencao
     ) {
         public static Response de(Equipamento equipamento) {
             return new Response(
@@ -54,7 +60,8 @@ public final class EquipamentoDtos {
                     equipamento.getUnidade().getId(),
                     equipamento.getUnidade().getNome(),
                     equipamento.getNome(),
-                    equipamento.getStatusAtual()
+                    equipamento.getStatusAtual(),
+                    equipamento.getIntervaloDiasManutencao()
             );
         }
     }

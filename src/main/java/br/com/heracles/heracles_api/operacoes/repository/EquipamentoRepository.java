@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface EquipamentoRepository extends JpaRepository<Equipamento, Long> {
@@ -22,4 +23,8 @@ public interface EquipamentoRepository extends JpaRepository<Equipamento, Long> 
     boolean existsByUnidadeIdAndNomeIgnoreCase(Long unidadeId, String nome);
 
     long countByStatusAtual(StatusEquipamento status);
+
+    /** Equipamentos com acompanhamento preventivo configurado, candidatos ao relatorio de vencidos. */
+    @EntityGraph(attributePaths = "unidade")
+    List<Equipamento> findByIntervaloDiasManutencaoIsNotNull();
 }

@@ -5,6 +5,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDateTime;
+
 /** Aparelho do salao. O status e derivado dos chamados de manutencao. */
 @Entity
 @Table(name = "equipamentos", schema = "operacoes")
@@ -25,6 +27,21 @@ public class Equipamento {
     @Enumerated(EnumType.STRING)
     @Column(name = "status_atual")
     private StatusEquipamento statusAtual = StatusEquipamento.OK;
+
+    /** Nulo: sem acompanhamento preventivo configurado pra este equipamento. */
+    @Column(name = "intervalo_dias_manutencao")
+    private Integer intervaloDiasManutencao;
+
+    /** Ancora a manutencao preventiva quando o equipamento nunca teve chamado resolvido. */
+    @Column(name = "cadastrado_em", updatable = false)
+    private LocalDateTime cadastradoEm;
+
+    @PrePersist
+    public void prePersist() {
+        if (this.cadastradoEm == null) {
+            this.cadastradoEm = LocalDateTime.now();
+        }
+    }
 
     public boolean estaEmManutencao() {
         return this.statusAtual == StatusEquipamento.EM_MANUTENCAO;
