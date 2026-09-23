@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /** Item a venda no balcao. O estoque e por unidade. */
 @Entity
@@ -41,6 +42,17 @@ public class Produto {
      * aponta para ele, e o item vendido precisa continuar rastreavel.
      */
     private Boolean ativo = true;
+
+    /** Ancora o relatorio de produtos parados quando o produto nunca vendeu. */
+    @Column(name = "cadastrado_em", updatable = false)
+    private LocalDateTime cadastradoEm;
+
+    @PrePersist
+    public void prePersist() {
+        if (this.cadastradoEm == null) {
+            this.cadastradoEm = LocalDateTime.now();
+        }
+    }
 
     /**
      * Baixa o estoque de uma venda.

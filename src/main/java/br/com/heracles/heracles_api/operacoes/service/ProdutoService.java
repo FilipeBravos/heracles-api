@@ -5,24 +5,39 @@ import br.com.heracles.heracles_api.core.repository.UnidadeRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.operacoes.domain.Produto;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoParado;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaUltimaVendaProduto;
 import br.com.heracles.heracles_api.operacoes.dto.ProdutoDtos;
 import br.com.heracles.heracles_api.operacoes.repository.ProdutoRepository;
+import br.com.heracles.heracles_api.operacoes.repository.VendaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class ProdutoService {
 
+    /** Mesmo periodo padrao ja usado nos outros relatorios do sistema. */
+    public static final int DIAS_PARADO_PADRAO = 90;
+
     private final ProdutoRepository repository;
     private final UnidadeRepository unidadeRepository;
+    private final VendaRepository vendaRepository;
 
-    public ProdutoService(ProdutoRepository repository, UnidadeRepository unidadeRepository) {
+    public ProdutoService(ProdutoRepository repository, UnidadeRepository unidadeRepository,
+                          VendaRepository vendaRepository) {
         this.repository = repository;
         this.unidadeRepository = unidadeRepository;
+        this.vendaRepository = vendaRepository;
     }
 
     @Transactional(readOnly = true)
@@ -91,6 +106,35 @@ public class ProdutoService {
     @Transactional(readOnly = true)
     public List<ProdutoDtos.LinhaReposicao> reposicaoEstoque() {
         return repository.buscarComEstoqueBaixo().stream().map(ProdutoDtos.LinhaReposicao::de).toList();
+    }
+
+    /**
+     * O oposto da reposicao de estoque: produtos ativos sem venda ha pelo
+     * menos `diasParado`, do mais parado pro menos. Quem nunca vendeu conta
+     * a partir do proprio cadastro, nao de uma venda que nunca aconteceu.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaProdutoParado> produtosParados(int diasParado) {
+        List<Produto> produtos = repository.findByAtivoTrue();
+        Map<Long, LocalDateTime> ultimasVendas = vendaRepository.ultimaVendaPorProduto().stream()
+                .collect(Collectors.toMap(LinhaUltimaVendaProduto::produtoId, LinhaUltimaVendaProduto::ultimaVenda));
+
+        LocalDate hoje = LocalDate.now();
+
+        return produtos.stream()
+                .map(produto -> {
+                    LocalDateTime ultimaVenda = ultimasVendas.get(produto.getId());
+                    LocalDateTime ancora = ultimaVenda != null ? ultimaVenda : produto.getCadastradoEm();
+                    long dias = ChronoUnit.DAYS.between(ancora.toLocalDate(), hoje);
+
+                    return new LinhaProdutoParado(
+                            produto.getId(), produto.getNome(), produto.getMarca(),
+                            produto.getUnidade().getId(), produto.getUnidade().getNome(),
+                            ultimaVenda != null ? ultimaVenda.toLocalDate() : null, dias);
+                })
+                .filter(linha -> linha.diasParado() >= diasParado)
+                .sorted(Comparator.comparingLong(LinhaProdutoParado::diasParado).reversed())
+                .toList();
     }
 
     private void aplicar(ProdutoDtos.Request request, Produto produto) {

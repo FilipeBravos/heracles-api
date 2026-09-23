@@ -1,18 +1,23 @@
 package br.com.heracles.heracles_api.operacoes.controller;
 
+import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoParado;
 import br.com.heracles.heracles_api.operacoes.dto.ProdutoDtos;
 import br.com.heracles.heracles_api.operacoes.service.ProdutoService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.List;
 
+@Validated
 @RestController
 @RequestMapping("/api/produtos")
 public class ProdutoController {
@@ -64,5 +69,12 @@ public class ProdutoController {
     @GetMapping("/reposicao-estoque")
     public List<ProdutoDtos.LinhaReposicao> reposicaoEstoque() {
         return service.reposicaoEstoque();
+    }
+
+    /** O oposto da reposicao: produtos ativos sem venda ha pelo menos `dias`, do mais parado pro menos. */
+    @GetMapping("/parados")
+    public List<LinhaProdutoParado> produtosParados(
+            @RequestParam(defaultValue = "" + ProdutoService.DIAS_PARADO_PADRAO) @Min(1) @Max(3650) int dias) {
+        return service.produtosParados(dias);
     }
 }
