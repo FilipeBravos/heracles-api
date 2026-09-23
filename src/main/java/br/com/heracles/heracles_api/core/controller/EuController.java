@@ -6,11 +6,13 @@ import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
 import br.com.heracles.heracles_api.agenda.service.AulaGrupoService;
 import br.com.heracles.heracles_api.core.domain.AvaliacaoFisicaFoto;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
+import br.com.heracles.heracles_api.core.dto.ExecucaoExercicioDtos;
 import br.com.heracles.heracles_api.core.dto.HistoricoTreinoResponse;
 import br.com.heracles.heracles_api.core.dto.MeusDadosDtos;
 import br.com.heracles.heracles_api.core.dto.MinhaMatriculaResponse;
 import br.com.heracles.heracles_api.core.dto.NotificacaoDtos;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
+import br.com.heracles.heracles_api.core.service.ExecucaoExercicioService;
 import br.com.heracles.heracles_api.core.service.MinhaAreaService;
 import br.com.heracles.heracles_api.core.service.NotificacaoService;
 import jakarta.validation.Valid;
@@ -50,14 +52,17 @@ public class EuController {
     private final NotificacaoService notificacaoService;
     private final AulaGrupoService aulaGrupoService;
     private final AgendamentoPersonalService agendamentoPersonalService;
+    private final ExecucaoExercicioService execucaoExercicioService;
 
     public EuController(MinhaAreaService service, NotificacaoService notificacaoService,
                         AulaGrupoService aulaGrupoService,
-                        AgendamentoPersonalService agendamentoPersonalService) {
+                        AgendamentoPersonalService agendamentoPersonalService,
+                        ExecucaoExercicioService execucaoExercicioService) {
         this.service = service;
         this.notificacaoService = notificacaoService;
         this.aulaGrupoService = aulaGrupoService;
         this.agendamentoPersonalService = agendamentoPersonalService;
+        this.execucaoExercicioService = execucaoExercicioService;
     }
 
     /** As fichas vinculadas a quem esta autenticado. */
@@ -228,6 +233,20 @@ public class EuController {
             @RequestParam(required = false) Long deId,
             @RequestParam(required = false) Long paraId) {
         return service.meuComparativoFisico(jwt.getSubject(), deId, paraId);
+    }
+
+    /** Registra o que o aluno realmente executou de um exercicio da propria ficha — carga, series e repeticoes de fato feitas. */
+    @PostMapping("/execucoes")
+    public ResponseEntity<ExecucaoExercicioDtos.Response> registrarExecucao(
+            @AuthenticationPrincipal Jwt jwt, @RequestBody @Valid ExecucaoExercicioDtos.Request request) {
+        return ResponseEntity.ok(execucaoExercicioService.registrar(jwt.getSubject(), request));
+    }
+
+    /** A evolucao de um exercicio especifico, do mais recente pro mais antigo. */
+    @GetMapping("/execucoes")
+    public List<ExecucaoExercicioDtos.Response> minhasExecucoes(
+            @AuthenticationPrincipal Jwt jwt, @RequestParam Long exercicioId) {
+        return execucaoExercicioService.minhasExecucoes(jwt.getSubject(), exercicioId);
     }
 
     @GetMapping("/avaliacoes-fisicas/{avaliacaoId}/fotos/{fotoId}")
