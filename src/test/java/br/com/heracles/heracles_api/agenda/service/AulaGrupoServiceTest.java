@@ -1,11 +1,14 @@
 package br.com.heracles.heracles_api.agenda.service;
 
 import br.com.heracles.heracles_api.agenda.domain.AulaGrupo;
+import br.com.heracles.heracles_api.agenda.domain.DiaSemana;
 import br.com.heracles.heracles_api.agenda.domain.InscricaoAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaFaltaAluno;
+import br.com.heracles.heracles_api.agenda.dto.LinhaNoShowPorHorario;
+import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaBruta;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.agenda.repository.InscricaoAulaRepository;
@@ -510,5 +513,72 @@ class AulaGrupoServiceTest {
 
         assertThat(relatorio.taxaComparecimento()).isEqualByComparingTo(java.math.BigDecimal.ZERO);
         assertThat(relatorio.maisFaltosos()).isEmpty();
+    }
+
+    // ---------------------------------------------------------------
+    // Taxa de no-show por horario recorrente
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Relatorio de no-show agrupa por aula, unidade, dia da semana e horario, calculando a taxa")
+    void relatorioNoShowAgrupaPorHorarioRecorrente() {
+        LocalDateTime primeiraTerca = LocalDateTime.of(2026, 9, 1, 18, 0); // terca-feira
+
+        given(inscricaoRepository.presencasComDetalheDesde(any())).willReturn(List.of(
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", primeiraTerca, false),
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", primeiraTerca.plusWeeks(1), false),
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", primeiraTerca.plusWeeks(2), false),
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", primeiraTerca.plusWeeks(3), true)
+        ));
+
+        List<LinhaNoShowPorHorario> relatorio = service.relatorioNoShowPorHorario(90, 4);
+
+        assertThat(relatorio).hasSize(1);
+        LinhaNoShowPorHorario linha = relatorio.get(0);
+        assertThat(linha.nomeAula()).isEqualTo("Spinning");
+        assertThat(linha.unidadeNome()).isEqualTo("Unidade Centro");
+        assertThat(linha.professorNome()).isEqualTo("Prof Ana");
+        assertThat(linha.diaSemana()).isEqualTo(DiaSemana.TERCA);
+        assertThat(linha.horario()).isEqualTo("18:00");
+        assertThat(linha.ocorrencias()).isEqualTo(4L);
+        assertThat(linha.faltas()).isEqualTo(3L);
+        assertThat(linha.presencas()).isEqualTo(1L);
+        // 3 faltas / 4 confirmadas * 100 = 75.0
+        assertThat(linha.taxaNoShow()).isEqualByComparingTo("75.0");
+    }
+
+    @Test
+    @DisplayName("Horario com menos ocorrencias que o minimo nao aparece no relatorio")
+    void relatorioNoShowRespeitaQuantidadeMinima() {
+        LocalDateTime primeiraQuarta = LocalDateTime.of(2026, 9, 2, 7, 0); // quarta-feira
+
+        given(inscricaoRepository.presencasComDetalheDesde(any())).willReturn(List.of(
+                new LinhaPresencaBruta("Yoga", 1L, "Unidade Centro", "Prof Bia", primeiraQuarta, false),
+                new LinhaPresencaBruta("Yoga", 1L, "Unidade Centro", "Prof Bia", primeiraQuarta.plusWeeks(1), false)
+        ));
+
+        List<LinhaNoShowPorHorario> relatorio = service.relatorioNoShowPorHorario(90, 4);
+
+        assertThat(relatorio).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Relatorio de no-show ordena do pior horario pro melhor")
+    void relatorioNoShowOrdenaDoPiorProMelhor() {
+        LocalDateTime terca = LocalDateTime.of(2026, 9, 1, 18, 0);
+        LocalDateTime quinta = LocalDateTime.of(2026, 9, 3, 7, 0);
+
+        given(inscricaoRepository.presencasComDetalheDesde(any())).willReturn(List.of(
+                // Spinning: 1 falta em 2 -> 50%
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", terca, false),
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", terca.plusWeeks(1), true),
+                // Funcional: 2 faltas em 2 -> 100%
+                new LinhaPresencaBruta("Funcional", 1L, "Unidade Centro", "Prof Bia", quinta, false),
+                new LinhaPresencaBruta("Funcional", 1L, "Unidade Centro", "Prof Bia", quinta.plusWeeks(1), false)
+        ));
+
+        List<LinhaNoShowPorHorario> relatorio = service.relatorioNoShowPorHorario(90, 2);
+
+        assertThat(relatorio).extracting(LinhaNoShowPorHorario::nomeAula).containsExactly("Funcional", "Spinning");
     }
 }

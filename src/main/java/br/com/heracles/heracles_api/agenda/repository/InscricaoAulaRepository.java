@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.agenda.repository;
 import br.com.heracles.heracles_api.agenda.domain.InscricaoAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import br.com.heracles.heracles_api.agenda.dto.LinhaFaltaAluno;
+import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaBruta;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -57,4 +58,18 @@ public interface InscricaoAulaRepository extends JpaRepository<InscricaoAula, Lo
             order by sum(case when i.presente = false then 1 else 0 end) desc
             """)
     List<LinhaFaltaAluno> faltasPorAlunoDesde(LocalDateTime desde, Pageable pageable);
+
+    /**
+     * Presencas confirmadas no periodo, com o suficiente pra agrupar por
+     * horario recorrente no servico — nao ha coluna de dia-da-semana na
+     * aula, cada ocorrencia e uma linha propria, entao o agrupamento por
+     * (nome, unidade, dia da semana, hora) acontece em Java, nao aqui.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.agenda.dto.LinhaPresencaBruta(
+                       au.nome, un.id, un.nome, p.nome, au.dataHora, i.presente)
+            from InscricaoAula i join i.aula au join au.unidade un join au.professor p
+            where i.presente is not null and au.dataHora >= :desde
+            """)
+    List<LinhaPresencaBruta> presencasComDetalheDesde(LocalDateTime desde);
 }

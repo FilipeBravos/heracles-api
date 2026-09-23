@@ -1,11 +1,14 @@
 package br.com.heracles.heracles_api.agenda.service;
 
 import br.com.heracles.heracles_api.agenda.domain.AulaGrupo;
+import br.com.heracles.heracles_api.agenda.domain.DiaSemana;
 import br.com.heracles.heracles_api.agenda.domain.InscricaoAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
+import br.com.heracles.heracles_api.agenda.dto.LinhaNoShowPorHorario;
+import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaBruta;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.agenda.repository.InscricaoAulaRepository;
@@ -26,9 +29,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Aulas em grupo: agendamento pelo professor/administracao, marcacao de
@@ -38,6 +44,13 @@ import java.util.List;
  */
 @Service
 public class AulaGrupoService {
+
+    /**
+     * Amostra minima de ocorrencias pra um horario entrar no relatorio de
+     * no-show — um unico dia ruim (ou bom) nao pode decidir a taxa de um
+     * horario que so aconteceu uma vez.
+     */
+    public static final int QUANTIDADE_MINIMA_OCORRENCIAS_PADRAO = 4;
 
     private final AulaGrupoRepository repository;
     private final InscricaoAulaRepository inscricaoRepository;
@@ -256,6 +269,62 @@ public class AulaGrupoService {
         List<LinhaFaltaAluno> maisFaltosos = inscricaoRepository.faltasPorAlunoDesde(desde, PageRequest.of(0, 10));
 
         return new AulaGrupoDtos.PainelPresenca(dias, totalConfirmadas, totalFaltas, taxaComparecimento, maisFaltosos);
+    }
+
+    /**
+     * Taxa de no-show por horario recorrente (mesma aula, unidade, dia da
+     * semana e hora) no periodo, do pior pro melhor — nao ha coluna de
+     * dia-da-semana na aula (cada ocorrencia e uma linha propria), entao
+     * o agrupamento acontece aqui, nao em JPQL. So entra quem tem pelo
+     * menos `quantidadeMinima` ocorrencias no periodo.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaNoShowPorHorario> relatorioNoShowPorHorario(int dias, int quantidadeMinima) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        List<LinhaPresencaBruta> brutas = inscricaoRepository.presencasComDetalheDesde(desde);
+
+        Map<ChaveHorario, List<LinhaPresencaBruta>> porHorario = brutas.stream()
+                .collect(Collectors.groupingBy(l -> new ChaveHorario(
+                        l.nomeAula(), l.unidadeId(), l.dataHora().getDayOfWeek(),
+                        l.dataHora().getHour(), l.dataHora().getMinute())));
+
+        return porHorario.entrySet().stream()
+                .map(entry -> linhaNoShow(entry.getKey(), entry.getValue()))
+                .filter(linha -> linha.ocorrencias() >= quantidadeMinima)
+                .sorted((a, b) -> b.taxaNoShow().compareTo(a.taxaNoShow()))
+                .toList();
+    }
+
+    private LinhaNoShowPorHorario linhaNoShow(ChaveHorario chave, List<LinhaPresencaBruta> linhas) {
+        long ocorrencias = linhas.stream().map(LinhaPresencaBruta::dataHora).distinct().count();
+        long faltas = linhas.stream().filter(l -> Boolean.FALSE.equals(l.presente())).count();
+        long presencas = linhas.stream().filter(l -> Boolean.TRUE.equals(l.presente())).count();
+        long total = faltas + presencas;
+        BigDecimal taxaNoShow = total > 0
+                ? BigDecimal.valueOf(faltas * 100).divide(BigDecimal.valueOf(total), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        LinhaPresencaBruta primeira = linhas.get(0);
+        String horario = "%02d:%02d".formatted(chave.hora(), chave.minuto());
+        return new LinhaNoShowPorHorario(
+                chave.nomeAula(), chave.unidadeId(), primeira.unidadeNome(), primeira.professorNome(),
+                converterDiaSemana(chave.diaSemana()), horario, ocorrencias, faltas, presencas, taxaNoShow);
+    }
+
+    /** A chave de um horario recorrente: mesma aula, unidade, dia da semana e minuto exato. */
+    private record ChaveHorario(String nomeAula, Long unidadeId, DayOfWeek diaSemana, int hora, int minuto) {
+    }
+
+    private static DiaSemana converterDiaSemana(DayOfWeek dia) {
+        return switch (dia) {
+            case MONDAY -> DiaSemana.SEGUNDA;
+            case TUESDAY -> DiaSemana.TERCA;
+            case WEDNESDAY -> DiaSemana.QUARTA;
+            case THURSDAY -> DiaSemana.QUINTA;
+            case FRIDAY -> DiaSemana.SEXTA;
+            case SATURDAY -> DiaSemana.SABADO;
+            case SUNDAY -> DiaSemana.DOMINGO;
+        };
     }
 
     /** Carrega a aula e garante que quem esta autenticado e o professor dela. */

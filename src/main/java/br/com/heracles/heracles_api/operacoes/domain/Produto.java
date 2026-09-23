@@ -32,6 +32,10 @@ public class Produto {
     @Column(name = "quantidade_estoque")
     private Integer quantidadeEstoque;
 
+    /** Abaixo disso, o produto entra na sugestao de reposicao — limiar proprio, nao um valor global pra todo produto. */
+    @Column(name = "estoque_minimo")
+    private Integer estoqueMinimo;
+
     /**
      * Produto sai de linha em vez de ser apagado: o historico de vendas
      * aponta para ele, e o item vendido precisa continuar rastreavel.
@@ -58,6 +62,11 @@ public class Produto {
 
     public boolean isAtivo() {
         return Boolean.TRUE.equals(this.ativo);
+    }
+
+    /** Quantas unidades faltam pra alcancar o estoque minimo — zero quando ja esta em dia ou acima. */
+    public int quantidadeParaRepor() {
+        return Math.max(0, this.estoqueMinimo - this.quantidadeEstoque);
     }
 
     @Override

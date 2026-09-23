@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface ProdutoRepository extends JpaRepository<Produto, Long> {
@@ -37,5 +38,20 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
 
     boolean existsByUnidadeIdAndNomeIgnoreCaseAndIdNot(Long unidadeId, String nome, Long id);
 
-    long countByAtivoTrueAndQuantidadeEstoqueLessThanEqual(int limite);
+    /**
+     * Produtos ativos abaixo do proprio estoque minimo, do maior deficit
+     * pro menor — cada produto tem seu limiar agora, entao a comparacao e
+     * sempre contra o campo do proprio registro, nunca um valor global.
+     */
+    @EntityGraph(attributePaths = "unidade")
+    @Query("""
+            select p from Produto p
+            where p.ativo = true and p.quantidadeEstoque < p.estoqueMinimo
+            order by (p.estoqueMinimo - p.quantidadeEstoque) desc
+            """)
+    List<Produto> buscarComEstoqueBaixo();
+
+    /** Contagem da mesma consulta de buscarComEstoqueBaixo, pro cartao do dashboard. */
+    @Query("select count(p) from Produto p where p.ativo = true and p.quantidadeEstoque < p.estoqueMinimo")
+    long countComEstoqueBaixo();
 }
