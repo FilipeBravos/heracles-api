@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.agenda.controller;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -66,5 +67,12 @@ public class AgendamentoPersonalController {
             @RequestParam(defaultValue = "" + AgendamentoPersonalService.QUANTIDADE_MINIMA_SESSOES_CANCELAMENTO_PADRAO)
             @Min(1) @Max(50) long quantidadeMinima) {
         return service.taxaCancelamentoPorProfessor(dias, quantidadeMinima);
+    }
+
+    /** Taxa de ocupacao da agenda de personal por professor, do menos ocupado pro mais ocupado. */
+    @GetMapping("/ocupacao")
+    public List<LinhaOcupacaoPersonal> ocupacao(
+            @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
+        return service.ocupacaoPorProfessor(dias);
     }
 }
