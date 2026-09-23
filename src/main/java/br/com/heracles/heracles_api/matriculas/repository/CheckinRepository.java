@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.matriculas.repository;
 
 import br.com.heracles.heracles_api.matriculas.domain.Checkin;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,4 +36,22 @@ public interface CheckinRepository extends JpaRepository<Checkin, Long> {
             group by u.id, u.nome, hour(c.momento)
             """)
     List<LinhaOcupacao> contarOcupacaoPorUnidadeEHora(LocalDateTime desde);
+
+    /**
+     * Tentativas de acesso barradas por unidade e motivo, desde uma data.
+     *
+     * O oposto da ocupacao: quem foi barrado nao ocupou espaco nenhum, mas
+     * a tentativa em si e o dado — mostra pra secretaria se o atrito na
+     * catraca de uma unidade e sobretudo inadimplencia, matricula vencida
+     * ou falta de matricula.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado(
+                       u.id, u.nome, c.motivo, count(c))
+            from Checkin c join c.unidade u
+            where c.liberado = false and c.momento >= :desde
+            group by u.id, u.nome, c.motivo
+            order by u.nome asc, count(c) desc
+            """)
+    List<LinhaMotivoAcessoNegado> contarAcessoNegadoPorUnidadeEMotivoDesde(LocalDateTime desde);
 }

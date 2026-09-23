@@ -263,10 +263,15 @@ public final class AssinaturaDtos {
      * Fica de fora quem nunca teve unidade nenhuma cadastrada, mas toda
      * unidade cadastrada aparece, mesmo com a serie zerada — silencio
      * tambem e informacao para quem esta decidindo onde reforcar horario.
+     *
+     * `motivosNegados` e o oposto: por unidade, so entra quem de fato foi
+     * barrado, e so o motivo que aconteceu — sem zero-fill, porque uma
+     * unidade sem SEM_MATRICULA no periodo simplesmente nao tem essa linha.
      */
     public record PainelOcupacao(
             int dias,
-            List<OcupacaoPorUnidade> unidades
+            List<OcupacaoPorUnidade> unidades,
+            List<LinhaMotivoAcessoNegado> motivosNegados
     ) {
     }
 

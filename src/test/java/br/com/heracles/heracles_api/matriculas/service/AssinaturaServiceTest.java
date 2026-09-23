@@ -15,6 +15,7 @@ import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
@@ -786,6 +787,22 @@ class AssinaturaServiceTest {
         AssinaturaDtos.OcupacaoPorUnidade linhaZonaSul = painel.unidades().stream()
                 .filter(u -> u.unidadeId().equals(2L)).findFirst().orElseThrow();
         assertThat(linhaZonaSul.pontos()).allMatch(p -> p.quantidade() == 0L);
+    }
+
+    @Test
+    @DisplayName("O painel de ocupacao repassa os motivos de acesso negado tal como a consulta devolve")
+    void ocupacaoRepassaMotivosNegados() {
+        given(unidadeRepository.findAll()).willReturn(List.of(centro));
+        given(checkinRepository.contarOcupacaoPorUnidadeEHora(any())).willReturn(List.of());
+        given(checkinRepository.contarAcessoNegadoPorUnidadeEMotivoDesde(any())).willReturn(List.of(
+                new LinhaMotivoAcessoNegado(1L, "Unidade Centro", MotivoAcesso.INADIMPLENTE, 4L),
+                new LinhaMotivoAcessoNegado(1L, "Unidade Centro", MotivoAcesso.VENCIDA, 2L)));
+
+        AssinaturaDtos.PainelOcupacao painel = service.ocupacao(30);
+
+        assertThat(painel.motivosNegados()).hasSize(2);
+        assertThat(painel.motivosNegados().get(0).motivo()).isEqualTo(MotivoAcesso.INADIMPLENTE);
+        assertThat(painel.motivosNegados().get(0).quantidade()).isEqualTo(4L);
     }
 
     // ---------------------------------------------------------------
