@@ -31,6 +31,8 @@ import br.com.heracles.heracles_api.matriculas.dto.LinhaExecucaoRenovacaoAutomat
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaAtrasoPagamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaPagaParaAtraso;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
@@ -53,7 +55,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -293,6 +297,35 @@ public class AssinaturaService {
                 .contarAcessoNegadoPorUnidadeEMotivoDesde(desde);
 
         return new AssinaturaDtos.PainelOcupacao(dias, unidades, motivosNegados);
+    }
+
+    /**
+     * Atraso medio de pagamento por forma de pagamento, entre cobrancas
+     * pagas no periodo, do pior pro melhor — quem paga antes ou no dia do
+     * vencimento entra com atraso zero, nunca negativo.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaAtrasoPagamento> atrasoMedioPagamento(int dias) {
+        LocalDate desde = LocalDate.now().minusDays(dias);
+        List<LinhaCobrancaPagaParaAtraso> pagas = cobrancaRepository.cobrancasPagasDesde(desde);
+
+        Map<FormaPagamento, List<LinhaCobrancaPagaParaAtraso>> porForma = pagas.stream()
+                .collect(Collectors.groupingBy(LinhaCobrancaPagaParaAtraso::formaPagamento));
+
+        return porForma.entrySet().stream()
+                .map(entry -> linhaAtrasoPagamento(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparing(LinhaAtrasoPagamento::atrasoMedioDias).reversed())
+                .toList();
+    }
+
+    private LinhaAtrasoPagamento linhaAtrasoPagamento(FormaPagamento forma, List<LinhaCobrancaPagaParaAtraso> linhas) {
+        List<Long> atrasos = linhas.stream()
+                .map(l -> Math.max(0, ChronoUnit.DAYS.between(l.dataVencimento(), l.dataPagamento())))
+                .toList();
+        BigDecimal atrasoMedio = BigDecimal.valueOf(atrasos.stream().mapToLong(Long::longValue).average().orElse(0))
+                .setScale(1, RoundingMode.HALF_UP);
+
+        return new LinhaAtrasoPagamento(forma, linhas.size(), atrasoMedio);
     }
 
     /**
