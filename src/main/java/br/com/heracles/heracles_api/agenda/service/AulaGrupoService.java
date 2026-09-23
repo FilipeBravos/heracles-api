@@ -9,6 +9,7 @@ import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaNoShowPorHorario;
 import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaBruta;
+import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaPorProfessor;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.agenda.repository.InscricaoAulaRepository;
@@ -51,6 +52,14 @@ public class AulaGrupoService {
      * horario que so aconteceu uma vez.
      */
     public static final int QUANTIDADE_MINIMA_OCORRENCIAS_PADRAO = 4;
+
+    /**
+     * Amostra minima de presencas confirmadas pra um professor entrar no
+     * relatorio de presenca por professor — aqui o denominador e presenca
+     * confirmada (nao ocorrencia distinta), entao o piso e maior que o do
+     * no-show por horario.
+     */
+    public static final int QUANTIDADE_MINIMA_PRESENCAS_PROFESSOR_PADRAO = 8;
 
     private final AulaGrupoRepository repository;
     private final InscricaoAulaRepository inscricaoRepository;
@@ -293,6 +302,38 @@ public class AulaGrupoService {
                 .filter(linha -> linha.ocorrencias() >= quantidadeMinima)
                 .sorted((a, b) -> b.taxaNoShow().compareTo(a.taxaNoShow()))
                 .toList();
+    }
+
+    /**
+     * Taxa de presenca em aula em grupo por professor no periodo, do pior
+     * pro melhor — mistura todas as aulas que ele da, ao contrario do
+     * no-show por horario, que separa por dia/hora. So entra quem tem
+     * pelo menos `quantidadeMinima` presencas confirmadas no periodo.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaPresencaPorProfessor> relatorioPresencaPorProfessor(int dias, int quantidadeMinima) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        List<LinhaPresencaBruta> brutas = inscricaoRepository.presencasComDetalheDesde(desde);
+
+        Map<String, List<LinhaPresencaBruta>> porProfessor = brutas.stream()
+                .collect(Collectors.groupingBy(LinhaPresencaBruta::professorNome));
+
+        return porProfessor.entrySet().stream()
+                .map(entry -> linhaPresencaPorProfessor(entry.getKey(), entry.getValue()))
+                .filter(linha -> linha.totalConfirmadas() >= quantidadeMinima)
+                .sorted((a, b) -> a.taxaPresenca().compareTo(b.taxaPresenca()))
+                .toList();
+    }
+
+    private LinhaPresencaPorProfessor linhaPresencaPorProfessor(String professorNome, List<LinhaPresencaBruta> linhas) {
+        long faltas = linhas.stream().filter(l -> Boolean.FALSE.equals(l.presente())).count();
+        long presencas = linhas.stream().filter(l -> Boolean.TRUE.equals(l.presente())).count();
+        long total = faltas + presencas;
+        BigDecimal taxaPresenca = total > 0
+                ? BigDecimal.valueOf(presencas * 100).divide(BigDecimal.valueOf(total), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        return new LinhaPresencaPorProfessor(professorNome, total, faltas, presencas, taxaPresenca);
     }
 
     private LinhaNoShowPorHorario linhaNoShow(ChaveHorario chave, List<LinhaPresencaBruta> linhas) {

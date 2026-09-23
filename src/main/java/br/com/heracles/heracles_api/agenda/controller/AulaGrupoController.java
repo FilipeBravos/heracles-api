@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.agenda.controller;
 
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaNoShowPorHorario;
+import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaPorProfessor;
 import br.com.heracles.heracles_api.agenda.service.AulaGrupoService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -74,5 +75,14 @@ public class AulaGrupoController {
             @RequestParam(defaultValue = "" + AulaGrupoService.QUANTIDADE_MINIMA_OCORRENCIAS_PADRAO)
             @Min(1) @Max(50) int quantidadeMinima) {
         return service.relatorioNoShowPorHorario(dias, quantidadeMinima);
+    }
+
+    /** Taxa de presença em aula em grupo por professor, do pior pro melhor. */
+    @GetMapping("/relatorio/presenca-por-professor")
+    public List<LinhaPresencaPorProfessor> relatorioPresencaPorProfessor(
+            @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias,
+            @RequestParam(defaultValue = "" + AulaGrupoService.QUANTIDADE_MINIMA_PRESENCAS_PROFESSOR_PADRAO)
+            @Min(1) @Max(200) int quantidadeMinima) {
+        return service.relatorioPresencaPorProfessor(dias, quantidadeMinima);
     }
 }
