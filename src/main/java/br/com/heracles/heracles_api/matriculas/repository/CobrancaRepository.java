@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.matriculas.repository;
 
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.StatusCobranca;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaPagaParaAtraso;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -59,4 +60,17 @@ public interface CobrancaRepository extends JpaRepository<Cobranca, Long> {
             where c.status <> 'CANCELADA' and c.dataVencimento >= :inicio and c.dataVencimento <= :fim
             """)
     BigDecimal somarCobrancasNoPeriodo(LocalDate inicio, LocalDate fim);
+
+    /**
+     * Cobrancas pagas desde uma data, com o suficiente pra calcular o
+     * atraso por forma de pagamento em Java — a soma/media do atraso
+     * exige comparar duas datas e clipar em zero, mais simples fora do JPQL.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaPagaParaAtraso(
+                       c.formaPagamento, c.dataVencimento, c.dataPagamento)
+            from Cobranca c
+            where c.status = 'PAGA' and c.dataPagamento >= :desde
+            """)
+    List<LinhaCobrancaPagaParaAtraso> cobrancasPagasDesde(LocalDate desde);
 }

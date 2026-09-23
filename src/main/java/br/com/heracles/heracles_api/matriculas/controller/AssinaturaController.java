@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.matriculas.dto.CheckinDtos;
 import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ComissaoIndicacaoDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaAtrasoPagamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaExecucaoRenovacaoAutomatica;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
@@ -75,6 +76,13 @@ public class AssinaturaController {
     public AssinaturaDtos.PainelOcupacao ocupacao(
             @RequestParam(defaultValue = "30") @Min(1) @Max(365) int dias) {
         return service.ocupacao(dias);
+    }
+
+    /** Atraso medio de pagamento por forma de pagamento, entre cobrancas pagas no periodo. */
+    @GetMapping("/atraso-pagamento")
+    public List<LinhaAtrasoPagamento> atrasoPagamento(
+            @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
+        return service.atrasoMedioPagamento(dias);
     }
 
     /**

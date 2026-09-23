@@ -15,6 +15,8 @@ import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaAtrasoPagamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaPagaParaAtraso;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
@@ -803,6 +805,43 @@ class AssinaturaServiceTest {
         assertThat(painel.motivosNegados()).hasSize(2);
         assertThat(painel.motivosNegados().get(0).motivo()).isEqualTo(MotivoAcesso.INADIMPLENTE);
         assertThat(painel.motivosNegados().get(0).quantidade()).isEqualTo(4L);
+    }
+
+    // ---------------------------------------------------------------
+    // Atraso medio de pagamento
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Atraso medio agrupa por forma de pagamento e clipa atraso negativo em zero")
+    void atrasoMedioClipaAdiantamentoEmZero() {
+        LocalDate vencimento = LocalDate.of(2026, 9, 10);
+        given(cobrancaRepository.cobrancasPagasDesde(any())).willReturn(List.of(
+                // Pagou 5 dias depois.
+                new LinhaCobrancaPagaParaAtraso(FormaPagamento.BOLETO, vencimento, vencimento.plusDays(5)),
+                // Pagou 2 dias antes — nao pode "adiantar" a media pra negativo.
+                new LinhaCobrancaPagaParaAtraso(FormaPagamento.BOLETO, vencimento, vencimento.minusDays(2))));
+
+        List<LinhaAtrasoPagamento> relatorio = service.atrasoMedioPagamento(90);
+
+        assertThat(relatorio).hasSize(1);
+        assertThat(relatorio.get(0).formaPagamento()).isEqualTo(FormaPagamento.BOLETO);
+        assertThat(relatorio.get(0).quantidade()).isEqualTo(2L);
+        // (5 + 0) / 2 = 2.5
+        assertThat(relatorio.get(0).atrasoMedioDias()).isEqualByComparingTo("2.5");
+    }
+
+    @Test
+    @DisplayName("Atraso medio ordena do pior pro melhor")
+    void atrasoMedioOrdenaDoPiorProMelhor() {
+        LocalDate vencimento = LocalDate.of(2026, 9, 10);
+        given(cobrancaRepository.cobrancasPagasDesde(any())).willReturn(List.of(
+                new LinhaCobrancaPagaParaAtraso(FormaPagamento.PIX, vencimento, vencimento),
+                new LinhaCobrancaPagaParaAtraso(FormaPagamento.BOLETO, vencimento, vencimento.plusDays(10))));
+
+        List<LinhaAtrasoPagamento> relatorio = service.atrasoMedioPagamento(90);
+
+        assertThat(relatorio).extracting(LinhaAtrasoPagamento::formaPagamento)
+                .containsExactly(FormaPagamento.BOLETO, FormaPagamento.PIX);
     }
 
     // ---------------------------------------------------------------

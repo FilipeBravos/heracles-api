@@ -8,6 +8,7 @@ import br.com.heracles.heracles_api.agenda.domain.StatusInscricao;
 import br.com.heracles.heracles_api.agenda.dto.AulaGrupoDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaFaltaAluno;
 import br.com.heracles.heracles_api.agenda.dto.LinhaNoShowPorHorario;
+import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaPorProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaPresencaBruta;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
@@ -580,5 +581,68 @@ class AulaGrupoServiceTest {
         List<LinhaNoShowPorHorario> relatorio = service.relatorioNoShowPorHorario(90, 2);
 
         assertThat(relatorio).extracting(LinhaNoShowPorHorario::nomeAula).containsExactly("Funcional", "Spinning");
+    }
+
+    // ---------------------------------------------------------------
+    // Taxa de presença em aula em grupo por professor
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Relatorio de presença por professor mistura todas as aulas do professor, calculando a taxa")
+    void relatorioPresencaPorProfessorAgrupaPorProfessor() {
+        LocalDateTime terca = LocalDateTime.of(2026, 9, 1, 18, 0);
+        LocalDateTime quinta = LocalDateTime.of(2026, 9, 3, 7, 0);
+
+        given(inscricaoRepository.presencasComDetalheDesde(any())).willReturn(List.of(
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", terca, false),
+                new LinhaPresencaBruta("Yoga", 1L, "Unidade Centro", "Prof Ana", quinta, true),
+                new LinhaPresencaBruta("Yoga", 1L, "Unidade Centro", "Prof Ana", quinta.plusWeeks(1), true)
+        ));
+
+        List<LinhaPresencaPorProfessor> relatorio = service.relatorioPresencaPorProfessor(90, 1);
+
+        assertThat(relatorio).hasSize(1);
+        LinhaPresencaPorProfessor linha = relatorio.get(0);
+        assertThat(linha.professorNome()).isEqualTo("Prof Ana");
+        assertThat(linha.totalConfirmadas()).isEqualTo(3L);
+        assertThat(linha.faltas()).isEqualTo(1L);
+        assertThat(linha.presencas()).isEqualTo(2L);
+        // 2 presencas / 3 confirmadas * 100 = 66.7
+        assertThat(linha.taxaPresenca()).isEqualByComparingTo("66.7");
+    }
+
+    @Test
+    @DisplayName("Professor com menos presenças confirmadas que o mínimo não aparece no relatório")
+    void relatorioPresencaPorProfessorRespeitaQuantidadeMinima() {
+        LocalDateTime terca = LocalDateTime.of(2026, 9, 1, 18, 0);
+
+        given(inscricaoRepository.presencasComDetalheDesde(any())).willReturn(List.of(
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", terca, false)
+        ));
+
+        List<LinhaPresencaPorProfessor> relatorio = service.relatorioPresencaPorProfessor(90, 4);
+
+        assertThat(relatorio).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Relatorio de presença por professor ordena do pior pro melhor")
+    void relatorioPresencaPorProfessorOrdenaDoPiorProMelhor() {
+        LocalDateTime terca = LocalDateTime.of(2026, 9, 1, 18, 0);
+        LocalDateTime quinta = LocalDateTime.of(2026, 9, 3, 7, 0);
+
+        given(inscricaoRepository.presencasComDetalheDesde(any())).willReturn(List.of(
+                // Prof Ana: 1 presenca em 2 -> 50%
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", terca, false),
+                new LinhaPresencaBruta("Spinning", 1L, "Unidade Centro", "Prof Ana", terca.plusWeeks(1), true),
+                // Prof Bia: 2 presencas em 2 -> 100%
+                new LinhaPresencaBruta("Funcional", 1L, "Unidade Centro", "Prof Bia", quinta, true),
+                new LinhaPresencaBruta("Funcional", 1L, "Unidade Centro", "Prof Bia", quinta.plusWeeks(1), true)
+        ));
+
+        List<LinhaPresencaPorProfessor> relatorio = service.relatorioPresencaPorProfessor(90, 2);
+
+        assertThat(relatorio).extracting(LinhaPresencaPorProfessor::professorNome)
+                .containsExactly("Prof Ana", "Prof Bia");
     }
 }
