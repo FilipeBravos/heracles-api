@@ -9,6 +9,7 @@ import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.operacoes.domain.MetodoPagamento;
 import br.com.heracles.heracles_api.operacoes.domain.Produto;
 import br.com.heracles.heracles_api.operacoes.domain.Venda;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorMetodoPagamento;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorUnidade;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoMaisVendido;
 import br.com.heracles.heracles_api.operacoes.dto.VendaDtos;
@@ -206,11 +207,36 @@ class VendaServiceTest {
         given(vendaRepository.countByDataVendaAfter(any())).willReturn(0L);
         given(vendaRepository.produtosMaisVendidosDesde(any(), any())).willReturn(List.of());
         given(vendaRepository.faturamentoPorUnidadeDesde(any())).willReturn(List.of());
+        given(vendaRepository.faturamentoPorMetodoPagamentoDesde(any())).willReturn(List.of());
 
         VendaDtos.PainelVendas relatorio = service.relatorio(30);
 
         assertThat(relatorio.ticketMedio()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(relatorio.maisVendidos()).isEmpty();
         assertThat(relatorio.porUnidade()).isEmpty();
+        assertThat(relatorio.porMetodoPagamento()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("O relatorio por forma de pagamento cruza unidade e metodo, com ticket medio proprio")
+    void relatorioCalculaPorFormaDePagamento() {
+        given(vendaRepository.faturamentoDesde(any())).willReturn(new BigDecimal("1000.00"));
+        given(vendaRepository.countByDataVendaAfter(any())).willReturn(4L);
+        given(vendaRepository.produtosMaisVendidosDesde(any(), any())).willReturn(List.of());
+        given(vendaRepository.faturamentoPorUnidadeDesde(any())).willReturn(List.of());
+        given(vendaRepository.faturamentoPorMetodoPagamentoDesde(any())).willReturn(List.of(
+                new LinhaFaturamentoPorMetodoPagamento(
+                        1L, "Unidade Centro", MetodoPagamento.PIX, new BigDecimal("600.00"), 3L),
+                new LinhaFaturamentoPorMetodoPagamento(
+                        1L, "Unidade Centro", MetodoPagamento.DINHEIRO, new BigDecimal("400.00"), 1L)));
+
+        VendaDtos.PainelVendas relatorio = service.relatorio(30);
+
+        assertThat(relatorio.porMetodoPagamento()).hasSize(2);
+        VendaDtos.LinhaVendaPorMetodoPagamento pix = relatorio.porMetodoPagamento().get(0);
+        assertThat(pix.metodoPagamento()).isEqualTo(MetodoPagamento.PIX);
+        assertThat(pix.ticketMedio()).isEqualByComparingTo("200.00");
+        VendaDtos.LinhaVendaPorMetodoPagamento dinheiro = relatorio.porMetodoPagamento().get(1);
+        assertThat(dinheiro.ticketMedio()).isEqualByComparingTo("400.00");
     }
 }

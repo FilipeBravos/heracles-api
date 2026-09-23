@@ -115,6 +115,25 @@ public final class VendaDtos {
         }
     }
 
+    /** Faturamento, numero de vendas e o ticket medio de uma unidade por forma de pagamento no periodo. */
+    public record LinhaVendaPorMetodoPagamento(
+            Long unidadeId,
+            String unidadeNome,
+            MetodoPagamento metodoPagamento,
+            BigDecimal faturamentoTotal,
+            long quantidadeVendas,
+            BigDecimal ticketMedio
+    ) {
+        public static LinhaVendaPorMetodoPagamento de(LinhaFaturamentoPorMetodoPagamento bruta) {
+            BigDecimal ticketMedio = bruta.quantidadeVendas() > 0
+                    ? bruta.faturamentoTotal().divide(BigDecimal.valueOf(bruta.quantidadeVendas()), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+            return new LinhaVendaPorMetodoPagamento(
+                    bruta.unidadeId(), bruta.unidadeNome(), bruta.metodoPagamento(),
+                    bruta.faturamentoTotal(), bruta.quantidadeVendas(), ticketMedio);
+        }
+    }
+
     /**
      * O relatorio de vendas da loja: o resumo do periodo, os produtos mais
      * vendidos e a comparacao entre unidades — o dinheiro e o volume da
@@ -129,7 +148,9 @@ public final class VendaDtos {
             /** Do mais vendido pro menos, limitado aos top 10. */
             List<LinhaProdutoMaisVendido> maisVendidos,
             /** Da maior receita pra menor. */
-            List<LinhaVendaPorUnidade> porUnidade
+            List<LinhaVendaPorUnidade> porUnidade,
+            /** Por unidade, e dentro dela da maior receita pra menor forma de pagamento. */
+            List<LinhaVendaPorMetodoPagamento> porMetodoPagamento
     ) {
     }
 }
