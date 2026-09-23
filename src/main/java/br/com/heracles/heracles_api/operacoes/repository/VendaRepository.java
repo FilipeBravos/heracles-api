@@ -1,6 +1,7 @@
 package br.com.heracles.heracles_api.operacoes.repository;
 
 import br.com.heracles.heracles_api.operacoes.domain.Venda;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorMetodoPagamento;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorUnidade;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoMaisVendido;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaUltimaVendaProduto;
@@ -55,6 +56,17 @@ public interface VendaRepository extends JpaRepository<Venda, Long> {
             order by sum(v.valorTotal) desc
             """)
     List<LinhaFaturamentoPorUnidade> faturamentoPorUnidadeDesde(LocalDateTime desde);
+
+    /** Faturamento e numero de vendas por unidade e forma de pagamento no periodo, da maior receita pra menor dentro de cada unidade. */
+    @Query("""
+            select new br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorMetodoPagamento(
+                       u.id, u.nome, v.metodoPagamento, coalesce(sum(v.valorTotal), 0), count(v))
+            from Venda v join v.unidade u
+            where v.dataVenda >= :desde
+            group by u.id, u.nome, v.metodoPagamento
+            order by u.nome asc, sum(v.valorTotal) desc
+            """)
+    List<LinhaFaturamentoPorMetodoPagamento> faturamentoPorMetodoPagamentoDesde(LocalDateTime desde);
 
     /** A venda mais recente de cada produto que ja vendeu ao menos uma vez, sem limite de periodo. */
     @Query("""

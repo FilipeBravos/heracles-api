@@ -78,7 +78,13 @@ public class VendaService {
                 .map(VendaDtos.LinhaVendaPorUnidade::de)
                 .toList();
 
-        return new VendaDtos.PainelVendas(dias, faturamentoTotal, quantidadeVendas, ticketMedio, maisVendidos, porUnidade);
+        List<VendaDtos.LinhaVendaPorMetodoPagamento> porMetodoPagamento =
+                repository.faturamentoPorMetodoPagamentoDesde(desde).stream()
+                        .map(VendaDtos.LinhaVendaPorMetodoPagamento::de)
+                        .toList();
+
+        return new VendaDtos.PainelVendas(
+                dias, faturamentoTotal, quantidadeVendas, ticketMedio, maisVendidos, porUnidade, porMetodoPagamento);
     }
 
     /**
