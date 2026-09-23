@@ -12,6 +12,7 @@ import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaMinutosOcupadosProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
+import br.com.heracles.heracles_api.agenda.dto.LinhaSessoesPorProfessor;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.agenda.repository.HorarioProfessorRepository;
@@ -518,6 +519,20 @@ class AgendamentoPersonalServiceTest {
 
         assertThat(resultado).extracting(LinhaOcupacaoPersonal::professorNome)
                 .containsExactly("Prof Bia", "Prof Ana");
+    }
+
+    @Test
+    @DisplayName("Ranking de sessoes repassa a contagem por professor tal como a consulta devolve, do mais cheio pro menos cheio")
+    void sessoesRealizadasRepassaRankingDaConsulta() {
+        given(repository.contarSessoesRealizadasPorProfessorDesde(any())).willReturn(List.of(
+                new LinhaSessoesPorProfessor(2L, "Prof Ana", 30L),
+                new LinhaSessoesPorProfessor(9L, "Prof Bia", 12L)));
+
+        List<LinhaSessoesPorProfessor> resultado = service.sessoesRealizadasPorProfessor(90);
+
+        assertThat(resultado).extracting(LinhaSessoesPorProfessor::professorNome)
+                .containsExactly("Prof Ana", "Prof Bia");
+        assertThat(resultado.get(0).quantidadeSessoes()).isEqualTo(30L);
     }
 
     private AgendamentoPersonal sessaoRealizada() {

@@ -4,6 +4,7 @@ import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
+import br.com.heracles.heracles_api.agenda.dto.LinhaSessoesPorProfessor;
 import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -74,5 +75,12 @@ public class AgendamentoPersonalController {
     public List<LinhaOcupacaoPersonal> ocupacao(
             @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
         return service.ocupacaoPorProfessor(dias);
+    }
+
+    /** Ranking de sessoes realizadas por professor, do mais cheio pro menos cheio. */
+    @GetMapping("/sessoes-realizadas")
+    public List<LinhaSessoesPorProfessor> sessoesRealizadas(
+            @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
+        return service.sessoesRealizadasPorProfessor(dias);
     }
 }

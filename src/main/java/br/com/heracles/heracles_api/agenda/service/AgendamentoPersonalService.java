@@ -10,6 +10,7 @@ import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaMinutosOcupadosProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
+import br.com.heracles.heracles_api.agenda.dto.LinhaSessoesPorProfessor;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.agenda.repository.HorarioProfessorRepository;
@@ -179,6 +180,18 @@ public class AgendamentoPersonalService {
     @Transactional(readOnly = true)
     public List<LinhaAvaliacaoProfessor> mediaAvaliacaoPorProfessor(long quantidadeMinima) {
         return repository.mediaAvaliacaoPorProfessor(quantidadeMinima);
+    }
+
+    /**
+     * Ranking de sessoes de personal realizadas por professor, do mais
+     * cheio pro menos cheio — visibilidade direta de volume de
+     * atendimento, sem cruzar com taxa de cancelamento nem ocupacao da
+     * agenda, que ja tem relatorio proprio.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaSessoesPorProfessor> sessoesRealizadasPorProfessor(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        return repository.contarSessoesRealizadasPorProfessorDesde(desde);
     }
 
     /**

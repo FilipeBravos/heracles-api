@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaMinutosOcupadosProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
+import br.com.heracles.heracles_api.agenda.dto.LinhaSessoesPorProfessor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -71,4 +72,16 @@ public interface AgendamentoPersonalRepository extends JpaRepository<Agendamento
             group by p.id
             """)
     List<LinhaMinutosOcupadosProfessor> minutosOcupadosPorProfessorDesde(LocalDateTime desde);
+
+    /** Ranking de sessoes realizadas por professor desde uma data, do mais cheio pro menos cheio. */
+    @Query("""
+            select new br.com.heracles.heracles_api.agenda.dto.LinhaSessoesPorProfessor(
+                       p.id, p.nome, count(s))
+            from AgendamentoPersonal s join s.professor p
+            where s.status = br.com.heracles.heracles_api.agenda.domain.StatusAgendamento.REALIZADA
+              and s.dataHora >= :desde
+            group by p.id, p.nome
+            order by count(s) desc
+            """)
+    List<LinhaSessoesPorProfessor> contarSessoesRealizadasPorProfessorDesde(LocalDateTime desde);
 }
