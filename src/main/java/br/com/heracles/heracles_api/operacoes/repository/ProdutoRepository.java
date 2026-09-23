@@ -54,4 +54,8 @@ public interface ProdutoRepository extends JpaRepository<Produto, Long> {
     /** Contagem da mesma consulta de buscarComEstoqueBaixo, pro cartao do dashboard. */
     @Query("select count(p) from Produto p where p.ativo = true and p.quantidadeEstoque < p.estoqueMinimo")
     long countComEstoqueBaixo();
+
+    /** Candidatos ao relatorio de produtos parados — a data de corte e aplicada em Java. */
+    @EntityGraph(attributePaths = "unidade")
+    List<Produto> findByAtivoTrue();
 }
