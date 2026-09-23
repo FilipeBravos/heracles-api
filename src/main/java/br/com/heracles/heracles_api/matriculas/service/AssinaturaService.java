@@ -31,6 +31,7 @@ import br.com.heracles.heracles_api.matriculas.dto.LinhaExecucaoRenovacaoAutomat
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
@@ -288,7 +289,10 @@ public class AssinaturaService {
                 })
                 .toList();
 
-        return new AssinaturaDtos.PainelOcupacao(dias, unidades);
+        List<LinhaMotivoAcessoNegado> motivosNegados = checkinRepository
+                .contarAcessoNegadoPorUnidadeEMotivoDesde(desde);
+
+        return new AssinaturaDtos.PainelOcupacao(dias, unidades, motivosNegados);
     }
 
     /**
