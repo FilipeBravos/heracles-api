@@ -56,6 +56,10 @@ public class AgendamentoPersonal {
     @Column(name = "comentario_avaliacao")
     private String comentarioAvaliacao;
 
+    /** Nula ate ser cancelada — a antecedencia do cancelamento vem daqui, comparada com dataHora. */
+    @Column(name = "cancelado_em")
+    private LocalDateTime canceladoEm;
+
     public LocalDateTime getFim() {
         return dataHora.plusMinutes(duracaoMinutos);
     }
@@ -80,11 +84,12 @@ public class AgendamentoPersonal {
      * REALIZADA (e possivelmente avaliada), desfazer o registro apagaria
      * um atendimento que de fato ocorreu.
      */
-    public void cancelar() {
+    public void cancelar(LocalDateTime agora) {
         if (this.status == StatusAgendamento.REALIZADA) {
             throw new RegraNegocioException("Esta sessao ja foi realizada e nao pode ser cancelada.");
         }
         this.status = StatusAgendamento.CANCELADO;
+        this.canceladoEm = agora;
     }
 
     /** O aluno avalia uma vez so — a nota registrada fica, nao e uma media que se refaz. */

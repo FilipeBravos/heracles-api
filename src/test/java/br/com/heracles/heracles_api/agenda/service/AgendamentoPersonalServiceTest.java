@@ -6,6 +6,8 @@ import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
 import br.com.heracles.heracles_api.agenda.repository.AgendamentoPersonalRepository;
 import br.com.heracles.heracles_api.agenda.repository.AulaGrupoRepository;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
@@ -25,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -182,6 +185,7 @@ class AgendamentoPersonalServiceTest {
         AgendamentoPersonalDtos.Response resposta = service.cancelar(50L);
 
         assertThat(resposta.status()).isEqualTo(StatusAgendamento.CANCELADO);
+        assertThat(sessao.getCanceladoEm()).isNotNull();
     }
 
     @Test
@@ -365,6 +369,83 @@ class AgendamentoPersonalServiceTest {
         assertThat(media).hasSize(1);
         assertThat(media.get(0).professorNome()).isEqualTo("Prof Ana");
         assertThat(media.get(0).notaMedia()).isEqualTo(4.5);
+    }
+
+    // ---------------------------------------------------------------
+    // Taxa de cancelamento
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Cancelamento com menos de 24h de antecedencia conta na taxa")
+    void cancelamentoEmCimaDaHoraContaNaTaxa() {
+        LocalDateTime dataHoraCancelada = LocalDateTime.of(2026, 3, 10, 18, 0);
+        given(repository.sessoesFinalizadasDesde(any())).willReturn(List.of(
+                new LinhaSessaoPersonalFinalizada(
+                        2L, "Prof Ana", StatusAgendamento.CANCELADO, dataHoraCancelada, dataHoraCancelada.minusHours(2)),
+                new LinhaSessaoPersonalFinalizada(
+                        2L, "Prof Ana", StatusAgendamento.REALIZADA, dataHoraCancelada.plusDays(1), null)));
+
+        List<LinhaCancelamentoProfessor> resultado = service.taxaCancelamentoPorProfessor(90, 1L);
+
+        assertThat(resultado).hasSize(1);
+        assertThat(resultado.get(0).totalSessoes()).isEqualTo(2);
+        assertThat(resultado.get(0).cancelamentosEmCimaDaHora()).isEqualTo(1);
+        assertThat(resultado.get(0).taxaCancelamento()).isEqualByComparingTo("50.0");
+    }
+
+    @Test
+    @DisplayName("Cancelamento com mais de 24h de antecedencia nao conta como em cima da hora")
+    void cancelamentoComAntecedenciaNaoConta() {
+        LocalDateTime dataHoraCancelada = LocalDateTime.of(2026, 3, 10, 18, 0);
+        given(repository.sessoesFinalizadasDesde(any())).willReturn(List.of(
+                new LinhaSessaoPersonalFinalizada(
+                        2L, "Prof Ana", StatusAgendamento.CANCELADO, dataHoraCancelada, dataHoraCancelada.minusHours(48))));
+
+        List<LinhaCancelamentoProfessor> resultado = service.taxaCancelamentoPorProfessor(90, 1L);
+
+        assertThat(resultado.get(0).cancelamentosEmCimaDaHora()).isEqualTo(0);
+        assertThat(resultado.get(0).taxaCancelamento()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("Cancelamento anterior a coluna existir (sem canceladoEm) nao conta como em cima da hora")
+    void cancelamentoSemDataDeCancelamentoNaoConta() {
+        given(repository.sessoesFinalizadasDesde(any())).willReturn(List.of(
+                new LinhaSessaoPersonalFinalizada(
+                        2L, "Prof Ana", StatusAgendamento.CANCELADO, LocalDateTime.of(2026, 3, 10, 18, 0), null)));
+
+        List<LinhaCancelamentoProfessor> resultado = service.taxaCancelamentoPorProfessor(90, 1L);
+
+        assertThat(resultado.get(0).cancelamentosEmCimaDaHora()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Quantidade minima filtra quem ainda nao tem amostra suficiente")
+    void quantidadeMinimaFiltraAmostraPequena() {
+        given(repository.sessoesFinalizadasDesde(any())).willReturn(List.of(
+                new LinhaSessaoPersonalFinalizada(
+                        2L, "Prof Ana", StatusAgendamento.REALIZADA, LocalDateTime.of(2026, 3, 10, 18, 0), null)));
+
+        List<LinhaCancelamentoProfessor> resultado = service.taxaCancelamentoPorProfessor(90, 4L);
+
+        assertThat(resultado).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Ordena do pior pro melhor")
+    void ordenaDoPiorProMelhor() {
+        LocalDateTime data = LocalDateTime.of(2026, 3, 10, 18, 0);
+        given(repository.sessoesFinalizadasDesde(any())).willReturn(List.of(
+                // Prof Ana: 1 de 2 canceladas em cima da hora = 50%.
+                new LinhaSessaoPersonalFinalizada(2L, "Prof Ana", StatusAgendamento.CANCELADO, data, data.minusHours(1)),
+                new LinhaSessaoPersonalFinalizada(2L, "Prof Ana", StatusAgendamento.REALIZADA, data, null),
+                // Prof Bia: 1 de 1 cancelada em cima da hora = 100%.
+                new LinhaSessaoPersonalFinalizada(9L, "Prof Bia", StatusAgendamento.CANCELADO, data, data.minusHours(1))));
+
+        List<LinhaCancelamentoProfessor> resultado = service.taxaCancelamentoPorProfessor(90, 1L);
+
+        assertThat(resultado).extracting(LinhaCancelamentoProfessor::professorNome)
+                .containsExactly("Prof Bia", "Prof Ana");
     }
 
     private AgendamentoPersonal sessaoRealizada() {
