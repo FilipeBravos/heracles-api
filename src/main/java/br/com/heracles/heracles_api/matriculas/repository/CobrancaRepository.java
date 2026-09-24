@@ -51,6 +51,22 @@ public interface CobrancaRepository extends JpaRepository<Cobranca, Long> {
     List<SomaAgrupada> somarInadimplenciaEmAbertoPorUnidade(LocalDate hoje);
 
     /**
+     * Mesma base de somarInadimplenciaEmAbertoPorUnidade, agrupada por
+     * plano — aqui o join e direto (c.assinatura.plano), sem o
+     * espalhamento de plano.unidades: uma cobranca pertence a um unico
+     * plano, nunca a mais de um.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada(p.id, p.nome, coalesce(sum(c.valor), 0))
+            from Cobranca c join c.assinatura.plano p
+            where c.status = 'PENDENTE'
+            and (c.assinatura.status = 'INADIMPLENTE'
+                 or (c.assinatura.status = 'ATIVA' and c.assinatura.dataVencimento < :hoje))
+            group by p.id, p.nome
+            """)
+    List<SomaAgrupada> somarInadimplenciaEmAbertoPorPlano(LocalDate hoje);
+
+    /**
      * Previsao de caixa do mes: cobrancas com vencimento dentro do
      * periodo, pagas ou ainda pendentes — canceladas ficam de fora, pois
      * esse dinheiro nunca vai entrar.

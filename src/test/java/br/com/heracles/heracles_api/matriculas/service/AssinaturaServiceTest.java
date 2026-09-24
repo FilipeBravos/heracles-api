@@ -13,6 +13,7 @@ import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorPlanoBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAtrasoPagamento;
@@ -762,6 +763,32 @@ class AssinaturaServiceTest {
 
         assertThat(porUnidade).hasSize(1);
         assertThat(porUnidade.get(0).ticketMedio()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("porPlano junta mrr e inadimplencia por id, e a consulta ja filtra so plano em venda")
+    void financeiroPorPlanoJuntaMrrEInadimplencia() {
+        given(repository.somarMrr()).willReturn(new BigDecimal("3000.00"));
+        given(repository.countByStatus(StatusAssinatura.ATIVA)).willReturn(10L);
+        given(cobrancaRepository.somarInadimplenciaEmAberto(any())).willReturn(new BigDecimal("500.00"));
+        given(cobrancaRepository.somarCobrancasNoPeriodo(any(), any())).willReturn(new BigDecimal("2800.00"));
+        given(repository.somarMrrPorPlano()).willReturn(List.of(
+                new LinhaFinanceiroPorPlanoBruta(1L, "Mensal Centro", new BigDecimal("2000.00"), 8L),
+                new LinhaFinanceiroPorPlanoBruta(2L, "Rede Anual", new BigDecimal("1000.00"), 2L)));
+        given(cobrancaRepository.somarInadimplenciaEmAbertoPorPlano(any())).willReturn(
+                List.of(new SomaAgrupada(1L, "Mensal Centro", new BigDecimal("500.00"))));
+
+        List<AssinaturaDtos.LinhaFinanceiroPorPlano> porPlano = service.financeiro().porPlano();
+
+        assertThat(porPlano).hasSize(2);
+        // Maior mrr primeiro.
+        assertThat(porPlano.get(0).planoNome()).isEqualTo("Mensal Centro");
+        assertThat(porPlano.get(0).mrr()).isEqualByComparingTo("2000.00");
+        assertThat(porPlano.get(0).ticketMedio()).isEqualByComparingTo("250.00");
+        assertThat(porPlano.get(0).inadimplenciaEmReais()).isEqualByComparingTo("500.00");
+
+        assertThat(porPlano.get(1).planoNome()).isEqualTo("Rede Anual");
+        assertThat(porPlano.get(1).inadimplenciaEmReais()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     // ---------------------------------------------------------------

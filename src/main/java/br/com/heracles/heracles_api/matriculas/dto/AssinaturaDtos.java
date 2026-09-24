@@ -295,6 +295,17 @@ public final class AssinaturaDtos {
     ) {
     }
 
+    /** Mesmo formato de LinhaFinanceiro, mas por plano — so plano em venda entra. */
+    public record LinhaFinanceiroPorPlano(
+            Long planoId,
+            String planoNome,
+            BigDecimal mrr,
+            long assinaturasAtivas,
+            BigDecimal ticketMedio,
+            BigDecimal inadimplenciaEmReais
+    ) {
+    }
+
     /**
      * O painel financeiro: o dinheiro, onde o painel de retencao mede
      * alunos.
@@ -319,7 +330,9 @@ public final class AssinaturaDtos {
             BigDecimal ticketMedio,
             BigDecimal inadimplenciaEmReais,
             BigDecimal projecaoDoMes,
-            List<LinhaFinanceiro> porUnidade
+            List<LinhaFinanceiro> porUnidade,
+            /** So plano em venda entra — um plano fora de linha e um capitulo fechado do catalogo. */
+            List<LinhaFinanceiroPorPlano> porPlano
     ) {
     }
 
