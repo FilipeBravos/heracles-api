@@ -23,6 +23,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,8 +84,15 @@ public class VendaService {
                         .map(VendaDtos.LinhaVendaPorMetodoPagamento::de)
                         .toList();
 
+        List<VendaDtos.LinhaVendaPorTipoCliente> porTipoCliente =
+                repository.faturamentoPorTipoClienteDesde(desde).stream()
+                        .map(VendaDtos.LinhaVendaPorTipoCliente::de)
+                        .sorted(Comparator.comparing(VendaDtos.LinhaVendaPorTipoCliente::vendaParaAluno).reversed())
+                        .toList();
+
         return new VendaDtos.PainelVendas(
-                dias, faturamentoTotal, quantidadeVendas, ticketMedio, maisVendidos, porUnidade, porMetodoPagamento);
+                dias, faturamentoTotal, quantidadeVendas, ticketMedio, maisVendidos, porUnidade, porMetodoPagamento,
+                porTipoCliente);
     }
 
     /**

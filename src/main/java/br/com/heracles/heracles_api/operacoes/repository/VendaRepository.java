@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.operacoes.repository;
 
 import br.com.heracles.heracles_api.operacoes.domain.Venda;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorMetodoPagamento;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorTipoCliente;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorUnidade;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoMaisVendido;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaUltimaVendaProduto;
@@ -67,6 +68,21 @@ public interface VendaRepository extends JpaRepository<Venda, Long> {
             order by u.nome asc, sum(v.valorTotal) desc
             """)
     List<LinhaFaturamentoPorMetodoPagamento> faturamentoPorMetodoPagamentoDesde(LocalDateTime desde);
+
+    /**
+     * Faturamento e numero de vendas no periodo, separado entre venda de
+     * aluno matriculado e venda avulsa (visitante) — v.aluno nulo e
+     * visitante, preenchido e aluno.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorTipoCliente(
+                       case when v.aluno is null then false else true end,
+                       coalesce(sum(v.valorTotal), 0), count(v))
+            from Venda v
+            where v.dataVenda >= :desde
+            group by case when v.aluno is null then false else true end
+            """)
+    List<LinhaFaturamentoPorTipoCliente> faturamentoPorTipoClienteDesde(LocalDateTime desde);
 
     /** A venda mais recente de cada produto que ja vendeu ao menos uma vez, sem limite de periodo. */
     @Query("""
