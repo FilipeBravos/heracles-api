@@ -2,6 +2,7 @@ package br.com.heracles.heracles_api.matriculas.repository;
 
 import br.com.heracles.heracles_api.matriculas.domain.Assinatura;
 import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
+import br.com.heracles.heracles_api.matriculas.dto.AlunoUnidade;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
@@ -17,6 +18,7 @@ import org.springframework.data.jpa.repository.Query;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -291,6 +293,21 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             order by count(a) desc
             """)
     List<ContagemAgrupada> contarIndicacoesPorAluno();
+
+    /**
+     * Unidade(s) vigentes de cada aluno informado — usado para atribuir a
+     * evolucao fisica media a uma unidade. Mesmo espalhamento de
+     * contarAtivasPorUnidadeEm: um plano de rede aparece uma vez por
+     * unidade que cobre. Aluno sem assinatura vigente simplesmente nao
+     * aparece — sem unidade a atribuir, ele fica fora do relatorio por
+     * unidade.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.AlunoUnidade(a.aluno.id, u.id, u.nome)
+            from Assinatura a join a.plano.unidades u
+            where a.aluno.id in :alunoIds and a.status <> 'CANCELADA'
+            """)
+    List<AlunoUnidade> buscarUnidadesVigentesPorAlunos(Collection<Long> alunoIds);
 
     /** Quantos cancelamentos por motivo, do mais comum para o menos comum — a razao de churn que a gestao mais precisa ver primeiro. */
     @Query("""

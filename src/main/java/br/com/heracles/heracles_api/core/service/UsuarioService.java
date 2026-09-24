@@ -12,6 +12,8 @@ import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.Aniversariante;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaAvaliacaoParaEvolucao;
+import br.com.heracles.heracles_api.core.dto.LinhaEvolucaoFisicaPorUnidade;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.ResumoReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
@@ -25,6 +27,8 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
+import br.com.heracles.heracles_api.matriculas.dto.AlunoUnidade;
+import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -32,13 +36,19 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -61,6 +71,13 @@ public class UsuarioService {
      * como cobranca de quem acabou de fazer uma.
      */
     public static final int DIAS_REAVALIACAO_PADRAO = 90;
+
+    /**
+     * Janela padrao da evolucao fisica media — mais larga que a de
+     * reavaliacao vencida porque aqui o interesse e a tendencia ao longo
+     * de meses, nao detectar quem parou de reavaliar recentemente.
+     */
+    public static final int DIAS_EVOLUCAO_FISICA_PADRAO = 365;
 
     /**
      * Texto vigente do contrato de adesao. Fixo por enquanto — nao ha tela
@@ -86,6 +103,7 @@ public class UsuarioService {
     private final AvaliacaoFisicaRepository avaliacaoFisicaRepository;
     private final ContratoAssinadoRepository contratoAssinadoRepository;
     private final PlanoRepository planoRepository;
+    private final AssinaturaRepository assinaturaRepository;
     private final PasswordEncoder passwordEncoder;
 
     public UsuarioService(UsuarioRepository repository,
@@ -95,6 +113,7 @@ public class UsuarioService {
                           AvaliacaoFisicaRepository avaliacaoFisicaRepository,
                           ContratoAssinadoRepository contratoAssinadoRepository,
                           PlanoRepository planoRepository,
+                          AssinaturaRepository assinaturaRepository,
                           PasswordEncoder passwordEncoder) {
         this.repository = repository;
         this.treinoRepository = treinoRepository;
@@ -103,6 +122,7 @@ public class UsuarioService {
         this.avaliacaoFisicaRepository = avaliacaoFisicaRepository;
         this.contratoAssinadoRepository = contratoAssinadoRepository;
         this.planoRepository = planoRepository;
+        this.assinaturaRepository = assinaturaRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -445,6 +465,100 @@ public class UsuarioService {
         LocalDate limite = hoje.minusDays(diasSemReavaliacao);
         return repository.buscarReavaliacaoVencida(limite, pageable)
                 .map(bruta -> LinhaReavaliacaoVencida.de(bruta, hoje));
+    }
+
+    /**
+     * Evolucao fisica media por unidade: media do delta de peso,
+     * percentual de gordura e IMC entre a primeira e a ultima avaliacao de
+     * cada aluno no periodo, agregada por unidade. So entra aluno com pelo
+     * menos duas avaliacoes no periodo — com uma so nao ha o que comparar.
+     *
+     * A unidade vem da assinatura vigente do aluno, nao de quando a
+     * avaliacao foi feita: AvaliacaoFisica nao carrega unidade, e
+     * Assinatura e um retrato do agora, sem historico de intervalos — e a
+     * melhor aproximacao disponivel. Aluno sem assinatura vigente fica de
+     * fora do relatorio por unidade, mesmo tendo evolucao calculada.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaEvolucaoFisicaPorUnidade> evolucaoFisicaMediaPorUnidade(int dias) {
+        LocalDate desde = LocalDate.now().minusDays(dias);
+        List<LinhaAvaliacaoParaEvolucao> avaliacoes = avaliacaoFisicaRepository.avaliacoesParaEvolucaoDesde(desde);
+
+        Map<Long, DeltaAluno> deltasPorAluno = avaliacoes.stream()
+                .collect(Collectors.groupingBy(LinhaAvaliacaoParaEvolucao::alunoId))
+                .entrySet().stream()
+                .filter(entry -> entry.getValue().size() >= 2)
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> calcularDelta(entry.getValue())));
+
+        if (deltasPorAluno.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, List<AlunoUnidade>> unidadesPorAluno = assinaturaRepository
+                .buscarUnidadesVigentesPorAlunos(deltasPorAluno.keySet()).stream()
+                .collect(Collectors.groupingBy(AlunoUnidade::alunoId));
+
+        Map<Long, List<ContribuicaoUnidade>> porUnidade = deltasPorAluno.entrySet().stream()
+                .flatMap(entry -> unidadesPorAluno.getOrDefault(entry.getKey(), List.of()).stream()
+                        .map(au -> new ContribuicaoUnidade(au.unidadeId(), au.unidadeNome(), entry.getValue())))
+                .collect(Collectors.groupingBy(ContribuicaoUnidade::unidadeId));
+
+        return porUnidade.values().stream()
+                .map(this::linhaEvolucao)
+                .sorted(Comparator.comparing(LinhaEvolucaoFisicaPorUnidade::unidadeNome))
+                .toList();
+    }
+
+    private LinhaEvolucaoFisicaPorUnidade linhaEvolucao(List<ContribuicaoUnidade> contribuicoes) {
+        return new LinhaEvolucaoFisicaPorUnidade(
+                contribuicoes.get(0).unidadeNome(),
+                contribuicoes.size(),
+                mediaDelta(contribuicoes, DeltaAluno::deltaPeso),
+                mediaDelta(contribuicoes, DeltaAluno::deltaPercentualGordura),
+                mediaDelta(contribuicoes, DeltaAluno::deltaImc));
+    }
+
+    private BigDecimal mediaDelta(List<ContribuicaoUnidade> contribuicoes, Function<DeltaAluno, BigDecimal> campo) {
+        List<BigDecimal> valores = contribuicoes.stream()
+                .map(ContribuicaoUnidade::delta)
+                .map(campo)
+                .filter(Objects::nonNull)
+                .toList();
+        if (valores.isEmpty()) {
+            return null;
+        }
+        BigDecimal soma = valores.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return soma.divide(BigDecimal.valueOf(valores.size()), 1, RoundingMode.HALF_UP);
+    }
+
+    /** As avaliacoes do aluno ja vem ordenadas por data (ver avaliacoesParaEvolucaoDesde) — a primeira e a ultima da lista bastam. */
+    private DeltaAluno calcularDelta(List<LinhaAvaliacaoParaEvolucao> avaliacoesDoAluno) {
+        LinhaAvaliacaoParaEvolucao primeira = avaliacoesDoAluno.get(0);
+        LinhaAvaliacaoParaEvolucao ultima = avaliacoesDoAluno.get(avaliacoesDoAluno.size() - 1);
+        return new DeltaAluno(
+                subtrairSeAmbosPresentes(ultima.pesoKg(), primeira.pesoKg()),
+                subtrairSeAmbosPresentes(ultima.percentualGordura(), primeira.percentualGordura()),
+                subtrairSeAmbosPresentes(calcularImc(ultima), calcularImc(primeira)));
+    }
+
+    private static BigDecimal subtrairSeAmbosPresentes(BigDecimal maisRecente, BigDecimal maisAntiga) {
+        return (maisRecente == null || maisAntiga == null) ? null : maisRecente.subtract(maisAntiga);
+    }
+
+    private static BigDecimal calcularImc(LinhaAvaliacaoParaEvolucao avaliacao) {
+        if (avaliacao.pesoKg() == null || avaliacao.alturaCm() == null || avaliacao.alturaCm().signum() == 0) {
+            return null;
+        }
+        BigDecimal alturaM = avaliacao.alturaCm().divide(BigDecimal.valueOf(100));
+        return avaliacao.pesoKg().divide(alturaM.multiply(alturaM), 1, RoundingMode.HALF_UP);
+    }
+
+    /** O delta de um aluno entre a primeira e a ultima avaliacao do periodo — um campo nulo significa "sem dado", nao zero. */
+    private record DeltaAluno(BigDecimal deltaPeso, BigDecimal deltaPercentualGordura, BigDecimal deltaImc) {
+    }
+
+    /** O delta de um aluno atribuido a uma das unidades vigentes dele. */
+    private record ContribuicaoUnidade(Long unidadeId, String unidadeNome, DeltaAluno delta) {
     }
 
     private AvaliacaoFisica buscarAvaliacaoDoAluno(Long alunoId, Long avaliacaoId) {
