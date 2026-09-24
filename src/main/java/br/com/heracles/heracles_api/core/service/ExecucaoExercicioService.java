@@ -5,6 +5,8 @@ import br.com.heracles.heracles_api.core.domain.ExecucaoExercicio;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.ExecucaoExercicioDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaAdesaoTreino;
+import br.com.heracles.heracles_api.core.dto.LinhaExecucaoParaAdesao;
 import br.com.heracles.heracles_api.core.repository.ExecucaoExercicioRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
@@ -13,7 +15,13 @@ import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * O registro de execucao de exercicio e a "Meu treino" veem do mesmo lugar:
@@ -23,6 +31,12 @@ import java.util.List;
  */
 @Service
 public class ExecucaoExercicioService {
+
+    /**
+     * Amostra minima de execucoes pra um aluno entrar no relatorio de
+     * adesao — uma unica execucao (boa ou ruim) nao sustenta uma taxa.
+     */
+    public static final int QUANTIDADE_MINIMA_EXECUCOES_ADESAO_PADRAO = 4;
 
     private final ExecucaoExercicioRepository repository;
     private final TreinoRepository treinoRepository;
@@ -76,6 +90,45 @@ public class ExecucaoExercicioService {
                 .findFirst()
                 .orElseThrow(() -> new RegraNegocioException(
                         "Este exercicio nao esta em nenhuma das suas fichas atuais."));
+    }
+
+    /**
+     * Adesao ao treino por aluno, do pior pro melhor: volume prescrito
+     * (series vezes repeticoes minimas) contra volume realizado, somado
+     * por aluno no periodo. So entram execucoes cujo exercicio ainda
+     * existe na ficha de origem — quem foi removido da ficha nao tem
+     * mais prescricao pra comparar. So entra aluno com pelo menos
+     * `quantidadeMinima` execucoes no periodo.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaAdesaoTreino> adesaoPorAluno(int dias, int quantidadeMinima) {
+        LocalDate desde = LocalDate.now().minusDays(dias);
+        List<LinhaExecucaoParaAdesao> linhas = repository.execucoesParaAdesaoDesde(desde);
+
+        Map<Long, List<LinhaExecucaoParaAdesao>> porAluno = linhas.stream()
+                .collect(Collectors.groupingBy(LinhaExecucaoParaAdesao::alunoId));
+
+        return porAluno.values().stream()
+                .map(this::linhaAdesao)
+                .filter(linha -> linha.quantidadeExecucoes() >= quantidadeMinima)
+                .sorted(Comparator.comparing(LinhaAdesaoTreino::taxaAdesao))
+                .toList();
+    }
+
+    private LinhaAdesaoTreino linhaAdesao(List<LinhaExecucaoParaAdesao> linhas) {
+        long volumePrescrito = linhas.stream()
+                .mapToLong(l -> (long) l.series() * l.repeticoesMin())
+                .sum();
+        long volumeRealizado = linhas.stream()
+                .mapToLong(l -> (long) l.seriesRealizadas() * l.repeticoesRealizadas())
+                .sum();
+        BigDecimal taxaAdesao = volumePrescrito > 0
+                ? BigDecimal.valueOf(volumeRealizado * 100).divide(BigDecimal.valueOf(volumePrescrito), 1, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        LinhaExecucaoParaAdesao primeira = linhas.get(0);
+        return new LinhaAdesaoTreino(
+                primeira.alunoId(), primeira.alunoNome(), linhas.size(), volumePrescrito, volumeRealizado, taxaAdesao);
     }
 
     private String vazioComoNulo(String valor) {

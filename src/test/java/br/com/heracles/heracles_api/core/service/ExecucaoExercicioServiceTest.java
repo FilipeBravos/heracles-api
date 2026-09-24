@@ -5,6 +5,8 @@ import br.com.heracles.heracles_api.core.domain.ExecucaoExercicio;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.ExecucaoExercicioDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaAdesaoTreino;
+import br.com.heracles.heracles_api.core.dto.LinhaExecucaoParaAdesao;
 import br.com.heracles.heracles_api.core.repository.ExecucaoExercicioRepository;
 import br.com.heracles.heracles_api.core.repository.TreinoRepository;
 import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
@@ -128,5 +130,56 @@ class ExecucaoExercicioServiceTest {
 
         assertThat(resultado).hasSize(1);
         assertThat(resultado.get(0).cargaRealizada()).isEqualByComparingTo("65.00");
+    }
+
+    // ---------------------------------------------------------------
+    // Adesao ao treino
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Adesao soma o volume prescrito e realizado de todas as execucoes do aluno, calculando a taxa")
+    void adesaoSomaVolumePrescritoERealizado() {
+        given(repository.execucoesParaAdesaoDesde(any())).willReturn(List.of(
+                // Prescrito: 3x10 = 30. Realizado: 3x8 = 24.
+                new LinhaExecucaoParaAdesao(10L, "Marina Alves", 3, 10, 3, 8),
+                // Prescrito: 4x8 = 32. Realizado: 4x8 = 32.
+                new LinhaExecucaoParaAdesao(10L, "Marina Alves", 4, 8, 4, 8)));
+
+        List<LinhaAdesaoTreino> relatorio = service.adesaoPorAluno(90, 1);
+
+        assertThat(relatorio).hasSize(1);
+        LinhaAdesaoTreino linha = relatorio.get(0);
+        assertThat(linha.alunoNome()).isEqualTo("Marina Alves");
+        assertThat(linha.quantidadeExecucoes()).isEqualTo(2L);
+        assertThat(linha.volumePrescritoTotal()).isEqualTo(62L);
+        assertThat(linha.volumeRealizadoTotal()).isEqualTo(56L);
+        // 56 / 62 * 100 = 90.3
+        assertThat(linha.taxaAdesao()).isEqualByComparingTo("90.3");
+    }
+
+    @Test
+    @DisplayName("Aluno com menos execucoes que o minimo nao aparece no relatorio")
+    void adesaoRespeitaQuantidadeMinima() {
+        given(repository.execucoesParaAdesaoDesde(any())).willReturn(List.of(
+                new LinhaExecucaoParaAdesao(10L, "Marina Alves", 3, 10, 3, 8)));
+
+        List<LinhaAdesaoTreino> relatorio = service.adesaoPorAluno(90, 4);
+
+        assertThat(relatorio).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Adesao ordena do pior pro melhor")
+    void adesaoOrdenaDoPiorProMelhor() {
+        given(repository.execucoesParaAdesaoDesde(any())).willReturn(List.of(
+                // Marina: 24/30 = 80%.
+                new LinhaExecucaoParaAdesao(10L, "Marina Alves", 3, 10, 3, 8),
+                // Bruno: 32/32 = 100%.
+                new LinhaExecucaoParaAdesao(20L, "Bruno Dias", 4, 8, 4, 8)));
+
+        List<LinhaAdesaoTreino> relatorio = service.adesaoPorAluno(90, 1);
+
+        assertThat(relatorio).extracting(LinhaAdesaoTreino::alunoNome)
+                .containsExactly("Marina Alves", "Bruno Dias");
     }
 }

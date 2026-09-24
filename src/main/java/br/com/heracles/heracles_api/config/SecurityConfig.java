@@ -114,6 +114,12 @@ public class SecurityConfig {
                             .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
                         .requestMatchers("/api/treinos/**").hasAnyRole("ADMIN", "PROFESSOR")
 
+                        // Visibilidade de gestao sobre execucoes de exercicio —
+                        // /api/eu/execucoes ja cai na regra authenticated(),
+                        // isto aqui e o relatorio de adesao ao treino.
+                        .requestMatchers(HttpMethod.GET, "/api/execucoes-exercicio/**")
+                            .hasAnyRole("ADMIN", "SECRETARIA", "PROFESSOR")
+
                         // Estrutura da rede: apenas administracao escreve.
                         //
                         // A leitura tambem era authenticated(), expondo ao
