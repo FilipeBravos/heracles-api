@@ -1,12 +1,14 @@
 package br.com.heracles.heracles_api.agenda.service;
 
 import br.com.heracles.heracles_api.agenda.domain.AgendamentoPersonal;
+import br.com.heracles.heracles_api.agenda.domain.DiaSemana;
 import br.com.heracles.heracles_api.agenda.domain.HorarioProfessor;
 import br.com.heracles.heracles_api.agenda.domain.StatusAgendamento;
 import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaCoberturaHorario;
 import br.com.heracles.heracles_api.agenda.dto.LinhaMinutosOcupadosProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
@@ -31,6 +33,8 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +60,15 @@ public class AgendamentoPersonalService {
 
     /** Mesmo raciocinio de QUANTIDADE_MINIMA_AVALIACOES_PADRAO, agora para a taxa de cancelamento. */
     public static final long QUANTIDADE_MINIMA_SESSOES_CANCELAMENTO_PADRAO = 4;
+
+    /**
+     * Faixa fixa de horario comercial para a cobertura de horario — nao ha
+     * abertura/fechamento configuravel por unidade no sistema ainda, e
+     * 06h-22h cobre a operacao tipica de uma academia.
+     */
+    private static final LocalTime INICIO_HORARIO_COMERCIAL = LocalTime.of(6, 0);
+    private static final LocalTime FIM_HORARIO_COMERCIAL = LocalTime.of(22, 0);
+    private static final int DURACAO_BLOCO_COBERTURA_MINUTOS = 30;
 
     private final AgendamentoPersonalRepository repository;
     private final AulaGrupoRepository aulaGrupoRepository;
@@ -282,6 +295,52 @@ public class AgendamentoPersonalService {
 
         return new LinhaOcupacaoPersonal(
                 professorId, blocos.get(0).getProfessor().getNome(), horasDisponiveis, horasOcupadas, taxa);
+    }
+
+    /**
+     * Blocos de 30 minutos, por unidade e dia da semana, sem nenhum
+     * professor cobrindo — a lacuna bruta da agenda, diferente da taxa de
+     * ocupacao (que so olha professores que ja tem horario cadastrado).
+     * Uma unidade sem nenhum HorarioProfessor aparece com o horario
+     * comercial inteiro como lacuna, dia a dia.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaCoberturaHorario> coberturaHorario() {
+        Map<Long, List<HorarioProfessor>> horariosPorUnidade = horarioProfessorRepository.buscarTodosComUnidade()
+                .stream()
+                .collect(Collectors.groupingBy(h -> h.getUnidade().getId()));
+
+        List<LinhaCoberturaHorario> lacunas = new ArrayList<>();
+        for (Unidade unidade : unidadeRepository.findAll()) {
+            List<HorarioProfessor> blocosDaUnidade = horariosPorUnidade.getOrDefault(unidade.getId(), List.of());
+            for (DiaSemana dia : DiaSemana.values()) {
+                acumularLacunasDoDia(unidade, dia, blocosDaUnidade, lacunas);
+            }
+        }
+
+        return lacunas.stream()
+                .sorted(Comparator.comparing(LinhaCoberturaHorario::unidadeNome)
+                        .thenComparing(LinhaCoberturaHorario::diaSemana)
+                        .thenComparing(LinhaCoberturaHorario::horaInicio))
+                .toList();
+    }
+
+    private void acumularLacunasDoDia(Unidade unidade, DiaSemana dia, List<HorarioProfessor> blocosDaUnidade,
+                                       List<LinhaCoberturaHorario> lacunas) {
+        List<HorarioProfessor> blocosDoDia = blocosDaUnidade.stream()
+                .filter(h -> h.getDiaSemana() == dia)
+                .toList();
+
+        for (LocalTime cursor = INICIO_HORARIO_COMERCIAL; cursor.isBefore(FIM_HORARIO_COMERCIAL);
+             cursor = cursor.plusMinutes(DURACAO_BLOCO_COBERTURA_MINUTOS)) {
+            LocalTime inicioSlot = cursor;
+            LocalTime fimSlot = inicioSlot.plusMinutes(DURACAO_BLOCO_COBERTURA_MINUTOS);
+            boolean coberto = blocosDoDia.stream()
+                    .anyMatch(h -> !h.getHoraInicio().isAfter(inicioSlot) && h.getHoraFim().isAfter(inicioSlot));
+            if (!coberto) {
+                lacunas.add(new LinhaCoberturaHorario(unidade.getId(), unidade.getNome(), dia, inicioSlot, fimSlot));
+            }
+        }
     }
 
     /** Mesma checagem de AulaGrupoService.garantirSemConflito, do outro lado da agenda do professor. */

@@ -9,6 +9,7 @@ import br.com.heracles.heracles_api.agenda.domain.StatusAula;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaCoberturaHorario;
 import br.com.heracles.heracles_api.agenda.dto.LinhaMinutosOcupadosProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessaoPersonalFinalizada;
@@ -35,6 +36,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -533,6 +535,59 @@ class AgendamentoPersonalServiceTest {
         assertThat(resultado).extracting(LinhaSessoesPorProfessor::professorNome)
                 .containsExactly("Prof Ana", "Prof Bia");
         assertThat(resultado.get(0).quantidadeSessoes()).isEqualTo(30L);
+    }
+
+    // ---------------------------------------------------------------
+    // Cobertura de horario
+    // ---------------------------------------------------------------
+
+    private HorarioProfessor blocoComUnidade(Usuario prof, Unidade unid, DiaSemana dia, int horaInicio, int horaFim) {
+        HorarioProfessor horario = bloco(prof, dia, horaInicio, horaFim);
+        horario.setUnidade(unid);
+        return horario;
+    }
+
+    @Test
+    @DisplayName("Unidade sem nenhum horario cadastrado tem o horario comercial inteiro como lacuna, nos 7 dias")
+    void coberturaSemHorarioGeraTodosOsBlocosComoLacuna() {
+        given(unidadeRepository.findAll()).willReturn(List.of(unidade));
+        given(horarioProfessorRepository.buscarTodosComUnidade()).willReturn(List.of());
+
+        List<LinhaCoberturaHorario> lacunas = service.coberturaHorario();
+
+        // 16h (06h-22h) / 30min = 32 blocos por dia, 7 dias da semana.
+        assertThat(lacunas).hasSize(32 * 7);
+        assertThat(lacunas).allMatch(l -> l.unidadeId().equals(3L));
+    }
+
+    @Test
+    @DisplayName("Bloco que cobre o horario comercial inteiro do dia nao gera lacuna naquele dia")
+    void coberturaSemLacunaQuandoDiaTotalmenteCoberto() {
+        given(unidadeRepository.findAll()).willReturn(List.of(unidade));
+        given(horarioProfessorRepository.buscarTodosComUnidade()).willReturn(List.of(
+                blocoComUnidade(professor, unidade, DiaSemana.SEGUNDA, 6, 22)));
+
+        List<LinhaCoberturaHorario> lacunas = service.coberturaHorario();
+
+        assertThat(lacunas).noneMatch(l -> l.diaSemana() == DiaSemana.SEGUNDA);
+        assertThat(lacunas).hasSize(32 * 6);
+    }
+
+    @Test
+    @DisplayName("Bloco parcial deixa lacuna so fora do horario coberto, nunca dentro dele")
+    void coberturaParcialDeixaLacunaSoForaDoBloco() {
+        given(unidadeRepository.findAll()).willReturn(List.of(unidade));
+        given(horarioProfessorRepository.buscarTodosComUnidade()).willReturn(List.of(
+                blocoComUnidade(professor, unidade, DiaSemana.SEGUNDA, 8, 12)));
+
+        List<LinhaCoberturaHorario> lacunasSegunda = service.coberturaHorario().stream()
+                .filter(l -> l.diaSemana() == DiaSemana.SEGUNDA)
+                .toList();
+
+        assertThat(lacunasSegunda).noneMatch(l ->
+                !l.horaInicio().isBefore(LocalTime.of(8, 0)) && l.horaInicio().isBefore(LocalTime.of(12, 0)));
+        assertThat(lacunasSegunda).anyMatch(l -> l.horaInicio().equals(LocalTime.of(7, 30)));
+        assertThat(lacunasSegunda).anyMatch(l -> l.horaInicio().equals(LocalTime.of(12, 0)));
     }
 
     private AgendamentoPersonal sessaoRealizada() {

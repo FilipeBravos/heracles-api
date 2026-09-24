@@ -19,7 +19,11 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencidaBruta;
+import br.com.heracles.heracles_api.core.dto.LinhaAvaliacaoParaEvolucao;
+import br.com.heracles.heracles_api.core.dto.LinhaEvolucaoFisicaPorUnidade;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
+import br.com.heracles.heracles_api.matriculas.dto.AlunoUnidade;
+import br.com.heracles.heracles_api.matriculas.repository.AssinaturaRepository;
 import br.com.heracles.heracles_api.matriculas.repository.PlanoRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -74,6 +78,9 @@ class UsuarioServiceTest {
     @Mock
     private PlanoRepository planoRepository;
 
+    @Mock
+    private AssinaturaRepository assinaturaRepository;
+
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /** Por padrao o aluno ja tem anamnese: so os testes do proprio gate desligam isso. */
@@ -86,7 +93,7 @@ class UsuarioServiceTest {
     private UsuarioService servico() {
         return new UsuarioService(repository, treinoRepository, historicoTreinoRepository,
                 anamneseRepository, avaliacaoFisicaRepository, contratoAssinadoRepository,
-                planoRepository, passwordEncoder);
+                planoRepository, assinaturaRepository, passwordEncoder);
     }
 
     /** Registra na base quem esta criando — o autor sai do token. */
@@ -809,5 +816,98 @@ class UsuarioServiceTest {
 
         assertThat(linha.ultimaAvaliacao()).isNull();
         assertThat(linha.diasSemAvaliacao()).isNull();
+    }
+
+    // ---------------------------------------------------------------
+    // Evolucao fisica media por unidade
+    // ---------------------------------------------------------------
+
+    private LinhaAvaliacaoParaEvolucao avaliacaoEvolucao(Long alunoId, LocalDate data, String pesoKg, String alturaCm,
+                                                          String percentualGordura) {
+        return new LinhaAvaliacaoParaEvolucao(alunoId, data,
+                pesoKg == null ? null : new java.math.BigDecimal(pesoKg),
+                alturaCm == null ? null : new java.math.BigDecimal(alturaCm),
+                percentualGordura == null ? null : new java.math.BigDecimal(percentualGordura));
+    }
+
+    @Test
+    @DisplayName("Aluno com uma unica avaliacao no periodo nao entra na media — nao ha o que comparar")
+    void evolucaoFisicaIgnoraAlunoComUmaSoAvaliacao() {
+        given(avaliacaoFisicaRepository.avaliacoesParaEvolucaoDesde(any())).willReturn(List.of(
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(30), "80", "170", "20")));
+
+        List<LinhaEvolucaoFisicaPorUnidade> resultado = servico().evolucaoFisicaMediaPorUnidade(365);
+
+        assertThat(resultado).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Calcula o delta medio de peso, percentual de gordura e IMC entre a primeira e a ultima avaliacao")
+    void evolucaoFisicaCalculaDeltaMedio() {
+        given(avaliacaoFisicaRepository.avaliacoesParaEvolucaoDesde(any())).willReturn(List.of(
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(180), "80", "170", "25"),
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(10), "75", "170", "20")));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of(
+                new AlunoUnidade(1L, 5L, "Unidade Centro")));
+
+        List<LinhaEvolucaoFisicaPorUnidade> resultado = servico().evolucaoFisicaMediaPorUnidade(365);
+
+        assertThat(resultado).hasSize(1);
+        LinhaEvolucaoFisicaPorUnidade linha = resultado.get(0);
+        assertThat(linha.unidadeNome()).isEqualTo("Unidade Centro");
+        assertThat(linha.quantidadeAlunos()).isEqualTo(1);
+        assertThat(linha.deltaPesoMedio()).isEqualByComparingTo("-5.0");
+        assertThat(linha.deltaPercentualGorduraMedio()).isEqualByComparingTo("-5.0");
+        // IMC: 80/1.7^2=27.7 -> 75/1.7^2=26.0, delta = -1.7
+        assertThat(linha.deltaImcMedio()).isEqualByComparingTo("-1.7");
+    }
+
+    @Test
+    @DisplayName("Aluno sem assinatura vigente fica de fora do relatorio por unidade, mesmo com evolucao calculada")
+    void evolucaoFisicaIgnoraAlunoSemAssinaturaVigente() {
+        given(avaliacaoFisicaRepository.avaliacoesParaEvolucaoDesde(any())).willReturn(List.of(
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(180), "80", "170", "25"),
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(10), "75", "170", "20")));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of());
+
+        List<LinhaEvolucaoFisicaPorUnidade> resultado = servico().evolucaoFisicaMediaPorUnidade(365);
+
+        assertThat(resultado).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Aluno de plano de rede conta a evolucao em cada unidade que o plano cobre")
+    void evolucaoFisicaEspalhaAlunoDePlanoDeRedeEmCadaUnidade() {
+        given(avaliacaoFisicaRepository.avaliacoesParaEvolucaoDesde(any())).willReturn(List.of(
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(180), "80", "170", "25"),
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(10), "75", "170", "20")));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of(
+                new AlunoUnidade(1L, 5L, "Unidade Centro"),
+                new AlunoUnidade(1L, 6L, "Unidade Norte")));
+
+        List<LinhaEvolucaoFisicaPorUnidade> resultado = servico().evolucaoFisicaMediaPorUnidade(365);
+
+        assertThat(resultado).extracting(LinhaEvolucaoFisicaPorUnidade::unidadeNome)
+                .containsExactly("Unidade Centro", "Unidade Norte");
+    }
+
+    @Test
+    @DisplayName("Delta ausente (falta peso numa das pontas) fica fora so daquela media, sem zerar o aluno")
+    void evolucaoFisicaIgnoraDeltaAusenteNaMedia() {
+        given(avaliacaoFisicaRepository.avaliacoesParaEvolucaoDesde(any())).willReturn(List.of(
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(180), null, "170", "25"),
+                avaliacaoEvolucao(1L, LocalDate.now().minusDays(10), "75", "170", "20"),
+                avaliacaoEvolucao(2L, LocalDate.now().minusDays(180), "80", "170", "25"),
+                avaliacaoEvolucao(2L, LocalDate.now().minusDays(10), "70", "170", "20")));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of(
+                new AlunoUnidade(1L, 5L, "Unidade Centro"),
+                new AlunoUnidade(2L, 5L, "Unidade Centro")));
+
+        List<LinhaEvolucaoFisicaPorUnidade> resultado = servico().evolucaoFisicaMediaPorUnidade(365);
+
+        assertThat(resultado).hasSize(1);
+        // So o aluno 2 tem delta de peso valido (-10); a media e sobre 1 valor, nao 2.
+        assertThat(resultado.get(0).deltaPesoMedio()).isEqualByComparingTo("-10.0");
+        assertThat(resultado.get(0).deltaPercentualGorduraMedio()).isEqualByComparingTo("-5.0");
     }
 }

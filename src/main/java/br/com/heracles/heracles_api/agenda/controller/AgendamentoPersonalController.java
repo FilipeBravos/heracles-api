@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.agenda.controller;
 import br.com.heracles.heracles_api.agenda.dto.AgendamentoPersonalDtos;
 import br.com.heracles.heracles_api.agenda.dto.LinhaAvaliacaoProfessor;
 import br.com.heracles.heracles_api.agenda.dto.LinhaCancelamentoProfessor;
+import br.com.heracles.heracles_api.agenda.dto.LinhaCoberturaHorario;
 import br.com.heracles.heracles_api.agenda.dto.LinhaOcupacaoPersonal;
 import br.com.heracles.heracles_api.agenda.dto.LinhaSessoesPorProfessor;
 import br.com.heracles.heracles_api.agenda.service.AgendamentoPersonalService;
@@ -82,5 +83,14 @@ public class AgendamentoPersonalController {
     public List<LinhaSessoesPorProfessor> sessoesRealizadas(
             @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
         return service.sessoesRealizadasPorProfessor(dias);
+    }
+
+    /**
+     * Blocos de 30 minutos, por unidade e dia da semana, sem nenhum
+     * professor cobrindo — dentro do horario comercial fixo (06h-22h).
+     */
+    @GetMapping("/cobertura-horario")
+    public List<LinhaCoberturaHorario> coberturaHorario() {
+        return service.coberturaHorario();
     }
 }

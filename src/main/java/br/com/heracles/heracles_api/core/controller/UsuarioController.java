@@ -6,6 +6,7 @@ import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.Aniversariante;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaEvolucaoFisicaPorUnidade;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.ResumoReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.UsuarioRequests;
@@ -167,5 +168,17 @@ public class UsuarioController {
             @RequestParam(defaultValue = "" + UsuarioService.DIAS_REAVALIACAO_PADRAO)
             @Min(30) @Max(365) int diasSemReavaliacao) {
         return service.reavaliacaoVencida(pageable, diasSemReavaliacao);
+    }
+
+    /**
+     * Evolucao fisica media por unidade: media do delta de peso, percentual
+     * de gordura e IMC entre alunos com pelo menos duas avaliacoes no
+     * periodo.
+     */
+    @GetMapping("/relatorio/evolucao-fisica")
+    public List<LinhaEvolucaoFisicaPorUnidade> evolucaoFisicaMediaPorUnidade(
+            @RequestParam(defaultValue = "" + UsuarioService.DIAS_EVOLUCAO_FISICA_PADRAO)
+            @Min(30) @Max(1095) int dias) {
+        return service.evolucaoFisicaMediaPorUnidade(dias);
     }
 }
