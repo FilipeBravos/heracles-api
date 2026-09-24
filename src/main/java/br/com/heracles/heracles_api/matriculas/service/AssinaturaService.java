@@ -33,6 +33,9 @@ import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAtrasoPagamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaPagaParaAtraso;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaParaEfetividade;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaEfetividadeLembrete;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaLembreteParaEfetividade;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
@@ -87,6 +90,9 @@ public class AssinaturaService {
      * bastante pra secretaria agir antes do cancelamento.
      */
     public static final int DIAS_INATIVIDADE_PADRAO = 14;
+
+    /** Mesma janela padrao de atrasoMedioPagamento — efetividade de lembrete e atraso de pagamento medem o mesmo ciclo de cobranca. */
+    public static final int DIAS_EFETIVIDADE_LEMBRETE_PADRAO = 90;
 
     /** Valor fixo do desconto de indicacao — mesmo valor pra qualquer plano, simples de comunicar no balcao. */
     private static final BigDecimal VALOR_RECOMPENSA_INDICACAO = new BigDecimal("30.00");
@@ -351,6 +357,86 @@ public class AssinaturaService {
                 .setScale(1, RoundingMode.HALF_UP);
 
         return new LinhaAtrasoPagamento(forma, linhas.size(), atrasoMedio);
+    }
+
+    /**
+     * Efetividade dos lembretes de cobranca: por estagio e canal, quantos
+     * lembretes foram enviados no periodo e quantos converteram em
+     * pagamento, do pior pro melhor.
+     *
+     * LembreteEnviado nao guarda qual cobranca ele se referia — so a
+     * assinatura. Cada lembrete e associado a cobranca daquela assinatura
+     * com vencimento mais proximo da data de envio, a que provavelmente
+     * estava pendente no momento; convertido e essa cobranca ter ficado
+     * PAGA numa data igual ou posterior ao envio.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaEfetividadeLembrete> efetividadeLembretes(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        List<LinhaLembreteParaEfetividade> lembretes = lembreteRepository.lembretesParaEfetividadeDesde(desde);
+        if (lembretes.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> assinaturaIds = lembretes.stream()
+                .map(LinhaLembreteParaEfetividade::assinaturaId)
+                .distinct()
+                .toList();
+        Map<Long, List<LinhaCobrancaParaEfetividade>> cobrancasPorAssinatura = cobrancaRepository
+                .buscarParaEfetividadePorAssinaturas(assinaturaIds).stream()
+                .collect(Collectors.groupingBy(LinhaCobrancaParaEfetividade::assinaturaId));
+
+        Map<EstagioCanal, List<LinhaLembreteParaEfetividade>> porEstagioCanal = lembretes.stream()
+                .collect(Collectors.groupingBy(l -> new EstagioCanal(l.estagio(), l.canal())));
+
+        return porEstagioCanal.entrySet().stream()
+                .map(entry -> linhaEfetividade(entry.getKey(), entry.getValue(), cobrancasPorAssinatura))
+                .sorted(Comparator.comparing(LinhaEfetividadeLembrete::taxaConversao))
+                .toList();
+    }
+
+    private LinhaEfetividadeLembrete linhaEfetividade(EstagioCanal chave, List<LinhaLembreteParaEfetividade> lembretes,
+                                                       Map<Long, List<LinhaCobrancaParaEfetividade>> cobrancasPorAssinatura) {
+        List<ResultadoLembrete> resultados = lembretes.stream()
+                .map(l -> avaliarConversao(l, cobrancasPorAssinatura.getOrDefault(l.assinaturaId(), List.of())))
+                .toList();
+
+        long total = resultados.size();
+        long convertidos = resultados.stream().filter(ResultadoLembrete::convertido).count();
+        BigDecimal taxa = BigDecimal.valueOf(convertidos * 100.0 / total).setScale(1, RoundingMode.HALF_UP);
+
+        List<Long> diasParaConversao = resultados.stream()
+                .filter(ResultadoLembrete::convertido)
+                .map(ResultadoLembrete::diasParaConversao)
+                .toList();
+        BigDecimal diasMedios = diasParaConversao.isEmpty() ? null
+                : BigDecimal.valueOf(diasParaConversao.stream().mapToLong(Long::longValue).average().orElse(0))
+                        .setScale(1, RoundingMode.HALF_UP);
+
+        return new LinhaEfetividadeLembrete(chave.estagio(), chave.canal(), total, convertidos, taxa, diasMedios);
+    }
+
+    /** A cobranca mais proxima da data de envio, entre as da mesma assinatura, e a candidata a "essa era a cobranca do lembrete". */
+    private ResultadoLembrete avaliarConversao(LinhaLembreteParaEfetividade lembrete, List<LinhaCobrancaParaEfetividade> cobrancas) {
+        LocalDate dataEnvio = lembrete.dataEnvio().toLocalDate();
+        LinhaCobrancaParaEfetividade maisProxima = cobrancas.stream()
+                .min(Comparator.comparingLong(c -> Math.abs(ChronoUnit.DAYS.between(dataEnvio, c.dataVencimento()))))
+                .orElse(null);
+
+        boolean converteu = maisProxima != null
+                && maisProxima.status() == StatusCobranca.PAGA
+                && maisProxima.dataPagamento() != null
+                && !maisProxima.dataPagamento().isBefore(dataEnvio);
+
+        return converteu
+                ? new ResultadoLembrete(true, ChronoUnit.DAYS.between(dataEnvio, maisProxima.dataPagamento()))
+                : new ResultadoLembrete(false, null);
+    }
+
+    private record EstagioCanal(EstagioLembrete estagio, CanalLembrete canal) {
+    }
+
+    private record ResultadoLembrete(boolean convertido, Long diasParaConversao) {
     }
 
     /**

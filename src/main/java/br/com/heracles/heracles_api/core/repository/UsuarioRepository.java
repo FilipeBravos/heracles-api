@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.core.repository;
 import br.com.heracles.heracles_api.core.domain.StatusUsuario;
 import br.com.heracles.heracles_api.core.domain.TipoPerfil;
 import br.com.heracles.heracles_api.core.domain.Usuario;
+import br.com.heracles.heracles_api.core.dto.LinhaAlunoAnamnese;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencidaBruta;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -138,4 +139,21 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
               )
             """)
     long countReavaliacaoVencida(LocalDate limite);
+
+    /**
+     * Alunos com matricula vigente e se ja preencheram a anamnese — para a
+     * cobertura de anamnese por unidade. "Vigente" aqui e qualquer status
+     * exceto CANCELADA, mesmo criterio de
+     * AssinaturaRepository.buscarUnidadesVigentesPorAlunos: os dois lados
+     * do cruzamento por unidade precisam concordar sobre quem entra.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.core.dto.LinhaAlunoAnamnese(
+                       u.id, case when a.id is not null then true else false end)
+            from Usuario u
+            left join Anamnese a on a.aluno = u
+            where u.tipoPerfil = 'ALUNO'
+              and exists (select 1 from Assinatura s where s.aluno = u and s.status <> 'CANCELADA')
+            """)
+    List<LinhaAlunoAnamnese> buscarAlunosVigentesComAnamnese();
 }
