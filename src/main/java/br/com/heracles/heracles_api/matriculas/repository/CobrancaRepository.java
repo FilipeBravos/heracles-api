@@ -3,12 +3,14 @@ package br.com.heracles.heracles_api.matriculas.repository;
 import br.com.heracles.heracles_api.matriculas.domain.Cobranca;
 import br.com.heracles.heracles_api.matriculas.domain.StatusCobranca;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaPagaParaAtraso;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaParaEfetividade;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -89,4 +91,17 @@ public interface CobrancaRepository extends JpaRepository<Cobranca, Long> {
             where c.status = 'PAGA' and c.dataPagamento >= :desde
             """)
     List<LinhaCobrancaPagaParaAtraso> cobrancasPagasDesde(LocalDate desde);
+
+    /**
+     * Todas as cobrancas das assinaturas informadas, com o suficiente pra
+     * achar, por lembrete, a cobranca com vencimento mais proximo da data
+     * de envio — LembreteEnviado nao guarda qual cobranca originou o envio.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaParaEfetividade(
+                       c.assinatura.id, c.dataVencimento, c.status, c.dataPagamento)
+            from Cobranca c
+            where c.assinatura.id in :assinaturaIds
+            """)
+    List<LinhaCobrancaParaEfetividade> buscarParaEfetividadePorAssinaturas(Collection<Long> assinaturaIds);
 }

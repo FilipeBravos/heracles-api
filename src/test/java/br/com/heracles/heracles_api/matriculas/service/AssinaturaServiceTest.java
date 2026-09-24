@@ -18,6 +18,9 @@ import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBrut
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAtrasoPagamento;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaPagaParaAtraso;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaCobrancaParaEfetividade;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaEfetividadeLembrete;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaLembreteParaEfetividade;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoAcessoNegado;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaOcupacao;
 import br.com.heracles.heracles_api.matriculas.dto.SomaAgrupada;
@@ -869,6 +872,87 @@ class AssinaturaServiceTest {
 
         assertThat(relatorio).extracting(LinhaAtrasoPagamento::formaPagamento)
                 .containsExactly(FormaPagamento.BOLETO, FormaPagamento.PIX);
+    }
+
+    // ---------------------------------------------------------------
+    // Efetividade dos lembretes de cobranca
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Lembrete sem cobranca paga depois nao conta como conversao")
+    void efetividadeSemPagamentoNaoConverte() {
+        LocalDateTime envio = LocalDateTime.of(2026, 1, 10, 9, 0);
+        given(lembreteRepository.lembretesParaEfetividadeDesde(any())).willReturn(List.of(
+                new LinhaLembreteParaEfetividade(1L, EstagioLembrete.VENCIDA, CanalLembrete.WHATSAPP, envio)));
+        given(cobrancaRepository.buscarParaEfetividadePorAssinaturas(any())).willReturn(List.of(
+                new LinhaCobrancaParaEfetividade(1L, LocalDate.of(2026, 1, 12), StatusCobranca.PENDENTE, null)));
+
+        List<LinhaEfetividadeLembrete> relatorio = service.efetividadeLembretes(90);
+
+        assertThat(relatorio).hasSize(1);
+        assertThat(relatorio.get(0).totalEnviados()).isEqualTo(1);
+        assertThat(relatorio.get(0).totalConvertidos()).isEqualTo(0);
+        assertThat(relatorio.get(0).taxaConversao()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(relatorio.get(0).diasMediosParaConversao()).isNull();
+    }
+
+    @Test
+    @DisplayName("Cobranca mais proxima do envio, paga depois, conta como conversao")
+    void efetividadeContaConversaoDaCobrancaMaisProxima() {
+        LocalDateTime envio = LocalDateTime.of(2026, 1, 10, 9, 0);
+        given(lembreteRepository.lembretesParaEfetividadeDesde(any())).willReturn(List.of(
+                new LinhaLembreteParaEfetividade(1L, EstagioLembrete.VENCIDA, CanalLembrete.WHATSAPP, envio)));
+        given(cobrancaRepository.buscarParaEfetividadePorAssinaturas(any())).willReturn(List.of(
+                // Vencimento distante — nao e a cobranca do lembrete.
+                new LinhaCobrancaParaEfetividade(1L, LocalDate.of(2026, 6, 1), StatusCobranca.PENDENTE, null),
+                // Vencimento proximo do envio — essa e a candidata certa.
+                new LinhaCobrancaParaEfetividade(1L, LocalDate.of(2026, 1, 12), StatusCobranca.PAGA, LocalDate.of(2026, 1, 14))));
+
+        List<LinhaEfetividadeLembrete> relatorio = service.efetividadeLembretes(90);
+
+        assertThat(relatorio.get(0).totalConvertidos()).isEqualTo(1);
+        assertThat(relatorio.get(0).taxaConversao()).isEqualByComparingTo("100.0");
+        // DAYS.between(10/jan, 14/jan) = 4.
+        assertThat(relatorio.get(0).diasMediosParaConversao()).isEqualByComparingTo("4.0");
+    }
+
+    @Test
+    @DisplayName("Cobranca paga antes do envio do lembrete nao conta como conversao — e de um ciclo anterior")
+    void efetividadeIgnoraPagamentoAnteriorAoEnvio() {
+        LocalDateTime envio = LocalDateTime.of(2026, 1, 10, 9, 0);
+        given(lembreteRepository.lembretesParaEfetividadeDesde(any())).willReturn(List.of(
+                new LinhaLembreteParaEfetividade(1L, EstagioLembrete.VENCIDA, CanalLembrete.WHATSAPP, envio)));
+        given(cobrancaRepository.buscarParaEfetividadePorAssinaturas(any())).willReturn(List.of(
+                new LinhaCobrancaParaEfetividade(1L, LocalDate.of(2026, 1, 12), StatusCobranca.PAGA, LocalDate.of(2026, 1, 5))));
+
+        List<LinhaEfetividadeLembrete> relatorio = service.efetividadeLembretes(90);
+
+        assertThat(relatorio.get(0).totalConvertidos()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Agrupa por estagio e canal separadamente, e ordena da menor pra maior taxa de conversao")
+    void efetividadeAgrupaEOrdenaDoPiorProMelhor() {
+        LocalDateTime envio = LocalDateTime.of(2026, 1, 10, 9, 0);
+        given(lembreteRepository.lembretesParaEfetividadeDesde(any())).willReturn(List.of(
+                // VENCIDA/WHATSAPP: 1 de 2 converteu = 50%.
+                new LinhaLembreteParaEfetividade(1L, EstagioLembrete.VENCIDA, CanalLembrete.WHATSAPP, envio),
+                new LinhaLembreteParaEfetividade(2L, EstagioLembrete.VENCIDA, CanalLembrete.WHATSAPP, envio),
+                // INADIMPLENTE/EMAIL: 1 de 1 converteu = 100%.
+                new LinhaLembreteParaEfetividade(3L, EstagioLembrete.INADIMPLENTE, CanalLembrete.EMAIL, envio)));
+        given(cobrancaRepository.buscarParaEfetividadePorAssinaturas(any())).willReturn(List.of(
+                new LinhaCobrancaParaEfetividade(1L, LocalDate.of(2026, 1, 12), StatusCobranca.PAGA, LocalDate.of(2026, 1, 13)),
+                new LinhaCobrancaParaEfetividade(2L, LocalDate.of(2026, 1, 12), StatusCobranca.PENDENTE, null),
+                new LinhaCobrancaParaEfetividade(3L, LocalDate.of(2026, 1, 12), StatusCobranca.PAGA, LocalDate.of(2026, 1, 13))));
+
+        List<LinhaEfetividadeLembrete> relatorio = service.efetividadeLembretes(90);
+
+        assertThat(relatorio).hasSize(2);
+        assertThat(relatorio.get(0).estagio()).isEqualTo(EstagioLembrete.VENCIDA);
+        assertThat(relatorio.get(0).canal()).isEqualTo(CanalLembrete.WHATSAPP);
+        assertThat(relatorio.get(0).taxaConversao()).isEqualByComparingTo("50.0");
+        assertThat(relatorio.get(1).estagio()).isEqualTo(EstagioLembrete.INADIMPLENTE);
+        assertThat(relatorio.get(1).taxaConversao()).isEqualByComparingTo("100.0");
     }
 
     // ---------------------------------------------------------------

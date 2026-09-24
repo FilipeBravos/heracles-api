@@ -6,6 +6,7 @@ import br.com.heracles.heracles_api.matriculas.dto.CobrancaDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ComissaoIndicacaoDtos;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAtrasoPagamento;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaEfetividadeLembrete;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaExecucaoRenovacaoAutomatica;
 import br.com.heracles.heracles_api.matriculas.dto.LembreteDtos;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
@@ -83,6 +84,14 @@ public class AssinaturaController {
     public List<LinhaAtrasoPagamento> atrasoPagamento(
             @RequestParam(defaultValue = "90") @Min(1) @Max(365) int dias) {
         return service.atrasoMedioPagamento(dias);
+    }
+
+    /** Efetividade dos lembretes de cobranca: taxa de conversao em pagamento por estagio e canal, do pior pro melhor. */
+    @GetMapping("/efetividade-lembretes")
+    public List<LinhaEfetividadeLembrete> efetividadeLembretes(
+            @RequestParam(defaultValue = "" + AssinaturaService.DIAS_EFETIVIDADE_LEMBRETE_PADRAO)
+            @Min(1) @Max(365) int dias) {
+        return service.efetividadeLembretes(dias);
     }
 
     /**
