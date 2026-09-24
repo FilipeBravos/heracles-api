@@ -134,6 +134,22 @@ public final class VendaDtos {
         }
     }
 
+    /** Faturamento, numero de vendas e o ticket medio no periodo, separado entre aluno matriculado e visitante. */
+    public record LinhaVendaPorTipoCliente(
+            boolean vendaParaAluno,
+            BigDecimal faturamentoTotal,
+            long quantidadeVendas,
+            BigDecimal ticketMedio
+    ) {
+        public static LinhaVendaPorTipoCliente de(LinhaFaturamentoPorTipoCliente bruta) {
+            BigDecimal ticketMedio = bruta.quantidadeVendas() > 0
+                    ? bruta.faturamentoTotal().divide(BigDecimal.valueOf(bruta.quantidadeVendas()), 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+            return new LinhaVendaPorTipoCliente(
+                    bruta.vendaParaAluno(), bruta.faturamentoTotal(), bruta.quantidadeVendas(), ticketMedio);
+        }
+    }
+
     /**
      * O relatorio de vendas da loja: o resumo do periodo, os produtos mais
      * vendidos e a comparacao entre unidades — o dinheiro e o volume da
@@ -150,7 +166,9 @@ public final class VendaDtos {
             /** Da maior receita pra menor. */
             List<LinhaVendaPorUnidade> porUnidade,
             /** Por unidade, e dentro dela da maior receita pra menor forma de pagamento. */
-            List<LinhaVendaPorMetodoPagamento> porMetodoPagamento
+            List<LinhaVendaPorMetodoPagamento> porMetodoPagamento,
+            /** Aluno matriculado primeiro, visitante depois — so entra quem teve venda no periodo. */
+            List<LinhaVendaPorTipoCliente> porTipoCliente
     ) {
     }
 }

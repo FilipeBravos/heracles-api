@@ -10,6 +10,7 @@ import br.com.heracles.heracles_api.operacoes.domain.MetodoPagamento;
 import br.com.heracles.heracles_api.operacoes.domain.Produto;
 import br.com.heracles.heracles_api.operacoes.domain.Venda;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorMetodoPagamento;
+import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorTipoCliente;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaFaturamentoPorUnidade;
 import br.com.heracles.heracles_api.operacoes.dto.LinhaProdutoMaisVendido;
 import br.com.heracles.heracles_api.operacoes.dto.VendaDtos;
@@ -238,5 +239,28 @@ class VendaServiceTest {
         assertThat(pix.ticketMedio()).isEqualByComparingTo("200.00");
         VendaDtos.LinhaVendaPorMetodoPagamento dinheiro = relatorio.porMetodoPagamento().get(1);
         assertThat(dinheiro.ticketMedio()).isEqualByComparingTo("400.00");
+    }
+
+    @Test
+    @DisplayName("O relatorio por tipo de cliente separa aluno de visitante, com ticket medio proprio, aluno primeiro")
+    void relatorioCalculaPorTipoCliente() {
+        given(vendaRepository.faturamentoDesde(any())).willReturn(new BigDecimal("1000.00"));
+        given(vendaRepository.countByDataVendaAfter(any())).willReturn(4L);
+        given(vendaRepository.produtosMaisVendidosDesde(any(), any())).willReturn(List.of());
+        given(vendaRepository.faturamentoPorUnidadeDesde(any())).willReturn(List.of());
+        given(vendaRepository.faturamentoPorMetodoPagamentoDesde(any())).willReturn(List.of());
+        given(vendaRepository.faturamentoPorTipoClienteDesde(any())).willReturn(List.of(
+                new LinhaFaturamentoPorTipoCliente(false, new BigDecimal("300.00"), 3L),
+                new LinhaFaturamentoPorTipoCliente(true, new BigDecimal("700.00"), 1L)));
+
+        VendaDtos.PainelVendas relatorio = service.relatorio(30);
+
+        assertThat(relatorio.porTipoCliente()).hasSize(2);
+        VendaDtos.LinhaVendaPorTipoCliente aluno = relatorio.porTipoCliente().get(0);
+        assertThat(aluno.vendaParaAluno()).isTrue();
+        assertThat(aluno.ticketMedio()).isEqualByComparingTo("700.00");
+        VendaDtos.LinhaVendaPorTipoCliente visitante = relatorio.porTipoCliente().get(1);
+        assertThat(visitante.vendaParaAluno()).isFalse();
+        assertThat(visitante.ticketMedio()).isEqualByComparingTo("100.00");
     }
 }
