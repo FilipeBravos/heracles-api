@@ -3,6 +3,7 @@ package br.com.heracles.heracles_api.agenda.repository;
 import br.com.heracles.heracles_api.agenda.domain.HorarioProfessor;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 
@@ -15,4 +16,9 @@ public interface HorarioProfessorRepository extends JpaRepository<HorarioProfess
     @Override
     @EntityGraph(attributePaths = {"professor"})
     List<HorarioProfessor> findAll();
+
+    /** Todos os blocos cadastrados, com a unidade — para a cobertura de horario por unidade. */
+    @EntityGraph(attributePaths = {"unidade"})
+    @Query("select h from HorarioProfessor h")
+    List<HorarioProfessor> buscarTodosComUnidade();
 }
