@@ -6,6 +6,7 @@ import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.Aniversariante;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaCoberturaAnamnesePorUnidade;
 import br.com.heracles.heracles_api.core.dto.LinhaEvolucaoFisicaPorUnidade;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.ResumoReavaliacaoVencida;
@@ -180,5 +181,11 @@ public class UsuarioController {
             @RequestParam(defaultValue = "" + UsuarioService.DIAS_EVOLUCAO_FISICA_PADRAO)
             @Min(30) @Max(1095) int dias) {
         return service.evolucaoFisicaMediaPorUnidade(dias);
+    }
+
+    /** Cobertura de anamnese por unidade: percentual de alunos com matricula vigente que ja preencheram, do pior pro melhor. */
+    @GetMapping("/relatorio/cobertura-anamnese")
+    public List<LinhaCoberturaAnamnesePorUnidade> coberturaAnamnesePorUnidade() {
+        return service.coberturaAnamnesePorUnidade();
     }
 }

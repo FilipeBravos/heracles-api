@@ -19,7 +19,9 @@ import br.com.heracles.heracles_api.core.repository.UsuarioRepository;
 import br.com.heracles.heracles_api.exception.RecursoNaoEncontradoException;
 import br.com.heracles.heracles_api.exception.RegraNegocioException;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencidaBruta;
+import br.com.heracles.heracles_api.core.dto.LinhaAlunoAnamnese;
 import br.com.heracles.heracles_api.core.dto.LinhaAvaliacaoParaEvolucao;
+import br.com.heracles.heracles_api.core.dto.LinhaCoberturaAnamnesePorUnidade;
 import br.com.heracles.heracles_api.core.dto.LinhaEvolucaoFisicaPorUnidade;
 import br.com.heracles.heracles_api.matriculas.domain.Plano;
 import br.com.heracles.heracles_api.matriculas.dto.AlunoUnidade;
@@ -909,5 +911,81 @@ class UsuarioServiceTest {
         // So o aluno 2 tem delta de peso valido (-10); a media e sobre 1 valor, nao 2.
         assertThat(resultado.get(0).deltaPesoMedio()).isEqualByComparingTo("-10.0");
         assertThat(resultado.get(0).deltaPercentualGorduraMedio()).isEqualByComparingTo("-5.0");
+    }
+
+    // ---------------------------------------------------------------
+    // Cobertura de anamnese por unidade
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Sem aluno com matricula vigente, o relatorio vem vazio")
+    void coberturaAnamneseVaziaSemAlunos() {
+        given(repository.buscarAlunosVigentesComAnamnese()).willReturn(List.of());
+
+        assertThat(servico().coberturaAnamnesePorUnidade()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Calcula o percentual de cobertura por unidade")
+    void coberturaAnamneseCalculaPercentual() {
+        given(repository.buscarAlunosVigentesComAnamnese()).willReturn(List.of(
+                new LinhaAlunoAnamnese(1L, true),
+                new LinhaAlunoAnamnese(2L, false)));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of(
+                new AlunoUnidade(1L, 5L, "Unidade Centro"),
+                new AlunoUnidade(2L, 5L, "Unidade Centro")));
+
+        List<LinhaCoberturaAnamnesePorUnidade> resultado = servico().coberturaAnamnesePorUnidade();
+
+        assertThat(resultado).hasSize(1);
+        assertThat(resultado.get(0).unidadeNome()).isEqualTo("Unidade Centro");
+        assertThat(resultado.get(0).quantidadeAlunos()).isEqualTo(2);
+        assertThat(resultado.get(0).quantidadeComAnamnese()).isEqualTo(1);
+        assertThat(resultado.get(0).percentualCobertura()).isEqualByComparingTo("50.0");
+    }
+
+    @Test
+    @DisplayName("Aluno sem assinatura vigente fica de fora do relatorio por unidade")
+    void coberturaAnamneseIgnoraAlunoSemAssinaturaVigente() {
+        given(repository.buscarAlunosVigentesComAnamnese()).willReturn(List.of(
+                new LinhaAlunoAnamnese(1L, true)));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of());
+
+        assertThat(servico().coberturaAnamnesePorUnidade()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Aluno de plano de rede conta a cobertura em cada unidade que o plano cobre")
+    void coberturaAnamneseEspalhaAlunoDePlanoDeRedeEmCadaUnidade() {
+        given(repository.buscarAlunosVigentesComAnamnese()).willReturn(List.of(
+                new LinhaAlunoAnamnese(1L, true)));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of(
+                new AlunoUnidade(1L, 5L, "Unidade Centro"),
+                new AlunoUnidade(1L, 6L, "Unidade Norte")));
+
+        List<LinhaCoberturaAnamnesePorUnidade> resultado = servico().coberturaAnamnesePorUnidade();
+
+        assertThat(resultado).extracting(LinhaCoberturaAnamnesePorUnidade::unidadeNome)
+                .containsExactlyInAnyOrder("Unidade Centro", "Unidade Norte");
+    }
+
+    @Test
+    @DisplayName("Ordena do pior pro melhor percentual de cobertura")
+    void coberturaAnamneseOrdenaDoPiorProMelhor() {
+        given(repository.buscarAlunosVigentesComAnamnese()).willReturn(List.of(
+                new LinhaAlunoAnamnese(1L, true),
+                new LinhaAlunoAnamnese(2L, true),
+                new LinhaAlunoAnamnese(3L, false)));
+        given(assinaturaRepository.buscarUnidadesVigentesPorAlunos(any())).willReturn(List.of(
+                // Unidade Centro: 1 de 1 = 100%.
+                new AlunoUnidade(1L, 5L, "Unidade Centro"),
+                // Unidade Norte: 1 de 2 = 50%.
+                new AlunoUnidade(2L, 6L, "Unidade Norte"),
+                new AlunoUnidade(3L, 6L, "Unidade Norte")));
+
+        List<LinhaCoberturaAnamnesePorUnidade> resultado = servico().coberturaAnamnesePorUnidade();
+
+        assertThat(resultado).extracting(LinhaCoberturaAnamnesePorUnidade::unidadeNome)
+                .containsExactly("Unidade Norte", "Unidade Centro");
     }
 }

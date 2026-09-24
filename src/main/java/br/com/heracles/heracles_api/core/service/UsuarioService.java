@@ -12,7 +12,9 @@ import br.com.heracles.heracles_api.core.dto.AnamneseDtos;
 import br.com.heracles.heracles_api.core.dto.Aniversariante;
 import br.com.heracles.heracles_api.core.dto.AvaliacaoFisicaDtos;
 import br.com.heracles.heracles_api.core.dto.ContratoDtos;
+import br.com.heracles.heracles_api.core.dto.LinhaAlunoAnamnese;
 import br.com.heracles.heracles_api.core.dto.LinhaAvaliacaoParaEvolucao;
+import br.com.heracles.heracles_api.core.dto.LinhaCoberturaAnamnesePorUnidade;
 import br.com.heracles.heracles_api.core.dto.LinhaEvolucaoFisicaPorUnidade;
 import br.com.heracles.heracles_api.core.dto.LinhaReavaliacaoVencida;
 import br.com.heracles.heracles_api.core.dto.ResumoReavaliacaoVencida;
@@ -559,6 +561,51 @@ public class UsuarioService {
 
     /** O delta de um aluno atribuido a uma das unidades vigentes dele. */
     private record ContribuicaoUnidade(Long unidadeId, String unidadeNome, DeltaAluno delta) {
+    }
+
+    /**
+     * Cobertura de anamnese por unidade: entre alunos com matricula
+     * vigente, quantos ja preencheram a anamnese, em percentual — do pior
+     * pro melhor.
+     *
+     * A unidade vem da assinatura vigente de cada aluno, mesmo
+     * espalhamento de evolucaoFisicaMediaPorUnidade: um aluno de plano de
+     * rede conta uma vez em cada unidade que o plano cobre.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaCoberturaAnamnesePorUnidade> coberturaAnamnesePorUnidade() {
+        List<LinhaAlunoAnamnese> alunos = repository.buscarAlunosVigentesComAnamnese();
+        if (alunos.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> alunoIds = alunos.stream().map(LinhaAlunoAnamnese::alunoId).toList();
+        Map<Long, List<AlunoUnidade>> unidadesPorAluno = assinaturaRepository
+                .buscarUnidadesVigentesPorAlunos(alunoIds).stream()
+                .collect(Collectors.groupingBy(AlunoUnidade::alunoId));
+
+        Map<Long, List<ContribuicaoAnamnese>> porUnidade = alunos.stream()
+                .flatMap(l -> unidadesPorAluno.getOrDefault(l.alunoId(), List.of()).stream()
+                        .map(au -> new ContribuicaoAnamnese(au.unidadeId(), au.unidadeNome(), l.temAnamnese())))
+                .collect(Collectors.groupingBy(ContribuicaoAnamnese::unidadeId));
+
+        return porUnidade.values().stream()
+                .map(this::linhaCoberturaAnamnese)
+                .sorted(Comparator.comparing(LinhaCoberturaAnamnesePorUnidade::percentualCobertura))
+                .toList();
+    }
+
+    private LinhaCoberturaAnamnesePorUnidade linhaCoberturaAnamnese(List<ContribuicaoAnamnese> contribuicoes) {
+        long total = contribuicoes.size();
+        long comAnamnese = contribuicoes.stream().filter(ContribuicaoAnamnese::temAnamnese).count();
+        BigDecimal percentual = BigDecimal.valueOf(comAnamnese * 100.0 / total).setScale(1, RoundingMode.HALF_UP);
+
+        return new LinhaCoberturaAnamnesePorUnidade(
+                contribuicoes.get(0).unidadeNome(), total, comAnamnese, percentual);
+    }
+
+    /** Se um aluno com matricula vigente, atribuido a uma das unidades vigentes dele, tem anamnese preenchida. */
+    private record ContribuicaoAnamnese(Long unidadeId, String unidadeNome, boolean temAnamnese) {
     }
 
     private AvaliacaoFisica buscarAvaliacaoDoAluno(Long alunoId, Long avaliacaoId) {
