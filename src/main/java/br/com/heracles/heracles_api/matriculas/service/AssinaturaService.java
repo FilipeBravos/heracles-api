@@ -234,7 +234,7 @@ public class AssinaturaService {
 
         return new AssinaturaDtos.PainelFinanceiro(
                 mesAtual.toString(), mrr, assinaturasAtivas, ticketMedio, inadimplenciaEmReais, projecaoDoMes,
-                linhasFinanceiroPorUnidade());
+                linhasFinanceiroPorUnidade(), linhasFinanceiroPorPlano());
     }
 
     /**
@@ -256,6 +256,31 @@ public class AssinaturaService {
 
                     return new AssinaturaDtos.LinhaFinanceiro(
                             grupo.unidadeId(), grupo.unidadeNome(), grupo.mrr(), grupo.assinaturasAtivas(),
+                            ticketMedio, inadimplencia);
+                })
+                .sorted((a, b) -> b.mrr().compareTo(a.mrr()))
+                .toList();
+    }
+
+    /**
+     * Mesmo raciocinio de linhasFinanceiroPorUnidade, mas por plano — so
+     * plano em venda entra (a consulta ja filtra p.ativo = true), mesmo
+     * que um plano fora de linha ainda tenha assinatura ativa rodando.
+     */
+    private List<AssinaturaDtos.LinhaFinanceiroPorPlano> linhasFinanceiroPorPlano() {
+        Map<Long, BigDecimal> inadimplenciaPorPlano = cobrancaRepository
+                .somarInadimplenciaEmAbertoPorPlano(LocalDate.now()).stream()
+                .collect(Collectors.toMap(SomaAgrupada::id, SomaAgrupada::valor));
+
+        return repository.somarMrrPorPlano().stream()
+                .map(grupo -> {
+                    BigDecimal ticketMedio = grupo.assinaturasAtivas() > 0
+                            ? grupo.mrr().divide(BigDecimal.valueOf(grupo.assinaturasAtivas()), 2, RoundingMode.HALF_UP)
+                            : BigDecimal.ZERO;
+                    BigDecimal inadimplencia = inadimplenciaPorPlano.getOrDefault(grupo.planoId(), BigDecimal.ZERO);
+
+                    return new AssinaturaDtos.LinhaFinanceiroPorPlano(
+                            grupo.planoId(), grupo.planoNome(), grupo.mrr(), grupo.assinaturasAtivas(),
                             ticketMedio, inadimplencia);
                 })
                 .sorted((a, b) -> b.mrr().compareTo(a.mrr()))

@@ -5,6 +5,7 @@ import br.com.heracles.heracles_api.matriculas.domain.StatusAssinatura;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemAgrupada;
 import br.com.heracles.heracles_api.matriculas.dto.ContagemMensal;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaAlunoInativoBruto;
+import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorPlanoBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorUnidadeBruta;
 import br.com.heracles.heracles_api.matriculas.dto.LinhaMotivoCancelamento;
 import org.springframework.data.domain.Page;
@@ -117,6 +118,20 @@ public interface AssinaturaRepository extends JpaRepository<Assinatura, Long> {
             group by u.id, u.nome
             """)
     List<LinhaFinanceiroPorUnidadeBruta> somarMrrPorUnidade();
+
+    /**
+     * Mesma base de somarMrrPorUnidade, agrupada por plano — so plano em
+     * venda entra: um plano fora de linha e um capitulo fechado do
+     * catalogo, mesmo que ainda tenha assinatura ativa rodando nele.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.matriculas.dto.LinhaFinanceiroPorPlanoBruta(
+                       p.id, p.nome, coalesce(sum(p.valorMensal), 0), count(a))
+            from Assinatura a join a.plano p
+            where a.status = 'ATIVA' and p.ativo = true
+            group by p.id, p.nome
+            """)
+    List<LinhaFinanceiroPorPlanoBruta> somarMrrPorPlano();
 
     /** Quem o lembrete automatico avisa no estagio INADIMPLENTE — o dedup de LembreteEnviado evita repetir. */
     @EntityGraph(attributePaths = {"aluno", "plano"})
