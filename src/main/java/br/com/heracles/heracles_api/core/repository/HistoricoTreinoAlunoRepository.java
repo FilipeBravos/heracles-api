@@ -1,9 +1,11 @@
 package br.com.heracles.heracles_api.core.repository;
 
 import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
+import br.com.heracles.heracles_api.core.dto.LinhaHistoricoParaPermanencia;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,4 +41,17 @@ public interface HistoricoTreinoAlunoRepository extends JpaRepository<HistoricoT
             order by h.desvinculadoEm desc
             """)
     List<HistoricoTreinoAluno> historicoDoAluno(Long alunoId);
+
+    /**
+     * Periodos de ficha encerrados desde uma data, com o suficiente pra
+     * calcular a permanencia por nivel em Java — divisao e media nao
+     * entram em `select new`.
+     */
+    @Query("""
+            select new br.com.heracles.heracles_api.core.dto.LinhaHistoricoParaPermanencia(
+                       h.treinoNivel, h.vinculadoEm, h.desvinculadoEm)
+            from HistoricoTreinoAluno h
+            where h.desvinculadoEm is not null and h.desvinculadoEm >= :desde
+            """)
+    List<LinhaHistoricoParaPermanencia> historicoFechadoParaPermanenciaDesde(LocalDateTime desde);
 }

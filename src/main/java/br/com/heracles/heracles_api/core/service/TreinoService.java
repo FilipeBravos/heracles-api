@@ -3,6 +3,8 @@ package br.com.heracles.heracles_api.core.service;
 import br.com.heracles.heracles_api.core.domain.Exercicio;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.dto.LinhaAlunoSemFicha;
+import br.com.heracles.heracles_api.core.dto.LinhaHistoricoParaPermanencia;
+import br.com.heracles.heracles_api.core.dto.LinhaPermanenciaPorNivel;
 import br.com.heracles.heracles_api.core.dto.ResumoAlunosSemFicha;
 import br.com.heracles.heracles_api.core.dto.TreinoRequest;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
@@ -15,7 +17,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -178,5 +185,36 @@ public class TreinoService {
     @Transactional(readOnly = true)
     public Page<LinhaAlunoSemFicha> alunosSemFicha(Pageable pageable) {
         return usuarioRepository.buscarAlunosSemFichaDeTreino(pageable).map(LinhaAlunoSemFicha::de);
+    }
+
+    /**
+     * Tempo medio de permanencia numa ficha antes da troca, por nivel, entre
+     * periodos encerrados no periodo consultado — do mais tempo pro menos.
+     * Ficha ainda em aberto nao entra: sem desvinculadoEm nao ha duracao
+     * pra medir ainda.
+     */
+    @Transactional(readOnly = true)
+    public List<LinhaPermanenciaPorNivel> permanenciaPorNivel(int dias) {
+        LocalDateTime desde = LocalDate.now().minusDays(dias).atStartOfDay();
+        List<LinhaHistoricoParaPermanencia> linhas = historicoTreinoRepository
+                .historicoFechadoParaPermanenciaDesde(desde);
+
+        Map<String, List<LinhaHistoricoParaPermanencia>> porNivel = linhas.stream()
+                .collect(Collectors.groupingBy(LinhaHistoricoParaPermanencia::treinoNivel));
+
+        return porNivel.entrySet().stream()
+                .map(entry -> linhaPermanencia(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparing(LinhaPermanenciaPorNivel::diasMedios).reversed())
+                .toList();
+    }
+
+    private LinhaPermanenciaPorNivel linhaPermanencia(String nivel, List<LinhaHistoricoParaPermanencia> linhas) {
+        double mediaDias = linhas.stream()
+                .mapToLong(l -> ChronoUnit.DAYS.between(l.vinculadoEm(), l.desvinculadoEm()))
+                .average()
+                .orElse(0);
+
+        return new LinhaPermanenciaPorNivel(
+                nivel, linhas.size(), BigDecimal.valueOf(mediaDias).setScale(1, RoundingMode.HALF_UP));
     }
 }

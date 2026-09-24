@@ -5,6 +5,8 @@ import br.com.heracles.heracles_api.core.domain.HistoricoTreinoAluno;
 import br.com.heracles.heracles_api.core.domain.Treino;
 import br.com.heracles.heracles_api.core.domain.Usuario;
 import br.com.heracles.heracles_api.core.dto.LinhaAlunoSemFicha;
+import br.com.heracles.heracles_api.core.dto.LinhaHistoricoParaPermanencia;
+import br.com.heracles.heracles_api.core.dto.LinhaPermanenciaPorNivel;
 import br.com.heracles.heracles_api.core.dto.ResumoAlunosSemFicha;
 import br.com.heracles.heracles_api.core.dto.TreinoRequest;
 import br.com.heracles.heracles_api.core.dto.TreinoResponse;
@@ -204,5 +206,44 @@ class TreinoServiceTest {
         assertThat(linha.alunoNome()).isEqualTo("Diego Ramos");
         assertThat(linha.email()).isEqualTo("diego@ex.com");
         assertThat(linha.telefone()).isEqualTo("11999990000");
+    }
+
+    // ---------------------------------------------------------------
+    // Permanencia na ficha por nivel
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Permanencia calcula a media de dias entre vinculo e desvinculo, por nivel")
+    void permanenciaCalculaMediaDeDiasPorNivel() {
+        given(historicoTreinoRepository.historicoFechadoParaPermanenciaDesde(any())).willReturn(List.of(
+                // Iniciante: 10 dias e 20 dias -> media 15.
+                new LinhaHistoricoParaPermanencia(
+                        "Iniciante", LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 1, 11, 0, 0)),
+                new LinhaHistoricoParaPermanencia(
+                        "Iniciante", LocalDateTime.of(2026, 2, 1, 0, 0), LocalDateTime.of(2026, 2, 21, 0, 0))));
+
+        List<LinhaPermanenciaPorNivel> relatorio = service.permanenciaPorNivel(365);
+
+        assertThat(relatorio).hasSize(1);
+        assertThat(relatorio.get(0).nivel()).isEqualTo("Iniciante");
+        assertThat(relatorio.get(0).quantidade()).isEqualTo(2L);
+        assertThat(relatorio.get(0).diasMedios()).isEqualByComparingTo("15.0");
+    }
+
+    @Test
+    @DisplayName("Permanencia ordena do nivel com mais tempo pro com menos tempo")
+    void permanenciaOrdenaDoMaisTempoProMenos() {
+        given(historicoTreinoRepository.historicoFechadoParaPermanenciaDesde(any())).willReturn(List.of(
+                // Avancado: 60 dias.
+                new LinhaHistoricoParaPermanencia(
+                        "Avançado", LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 3, 2, 0, 0)),
+                // Iniciante: 10 dias.
+                new LinhaHistoricoParaPermanencia(
+                        "Iniciante", LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 1, 11, 0, 0))));
+
+        List<LinhaPermanenciaPorNivel> relatorio = service.permanenciaPorNivel(365);
+
+        assertThat(relatorio).extracting(LinhaPermanenciaPorNivel::nivel)
+                .containsExactly("Avançado", "Iniciante");
     }
 }
